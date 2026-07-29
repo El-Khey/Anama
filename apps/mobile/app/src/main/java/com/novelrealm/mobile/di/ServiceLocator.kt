@@ -3,6 +3,8 @@ package com.novelrealm.mobile.di
 import android.content.Context
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.novelrealm.mobile.BuildConfig
+import com.novelrealm.mobile.data.local.PreferencesStore
+import com.novelrealm.mobile.data.local.SessionManager
 import com.novelrealm.mobile.data.local.TokenStorage
 import com.novelrealm.mobile.data.remote.AuthInterceptor
 import com.novelrealm.mobile.data.remote.api.AuthApi
@@ -55,8 +57,24 @@ object ServiceLocator {
     // qui doivent survivre à la destruction d'un ViewModel (sortie du lecteur).
     val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    // ── Stockage sécurisé du token (#33) ──
+    // ── Stockage sécurisé du token (#33) + état de session (#35) ──
     val tokenStorage: TokenStorage by lazy { TokenStorage(appContext) }
+
+    // Source de vérité unique « connecté / déconnecté », partagée par l'auth ET la
+    // couche réseau (l'intercepteur la notifie sur un 401 → auto-déconnexion).
+    val sessionManager: SessionManager by lazy {
+        SessionManager(tokenStorage, onSessionEnded = { preferencesStore.onSessionEnded() })
+    }
+
+    // Préférences (thème + lecture) : appliquées localement tout de suite, poussées
+    // vers le compte de façon débouncée et best-effort.
+    val preferencesStore: PreferencesStore by lazy {
+        PreferencesStore(
+            context = appContext,
+            scope = appScope,
+            pushToServer = { preferences -> userRepository.updatePreferences(preferences) },
+        )
+    }
 
     // ── Réseau ──
     private val json: Json by lazy {
@@ -68,7 +86,8 @@ object ServiceLocator {
 
     private val okHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .addInterceptor(AuthInterceptor(tokenStorage))   // injecte le Bearer sur les appels authentifiés
+            // Injecte le Bearer sur les appels authentifiés + déconnecte sur 401 (token expiré).
+            .addInterceptor(AuthInterceptor(tokenStorage, onUnauthorized = { sessionManager.onUnauthorized() }))
             .addInterceptor(
                 HttpLoggingInterceptor().apply {
                     level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BODY
@@ -99,7 +118,7 @@ object ServiceLocator {
     private val userApi: UserApi by lazy { retrofit.create(UserApi::class.java) }
 
     // ── Repositories ──
-    val authRepository: AuthRepository by lazy { AuthRepository(authApi, tokenStorage) }
+    val authRepository: AuthRepository by lazy { AuthRepository(authApi, sessionManager) }
     val novelRepository: NovelRepository by lazy { NovelRepository(novelApi) }
     val chapterRepository: ChapterRepository by lazy { ChapterRepository(chapterApi) }
     val libraryRepository: LibraryRepository by lazy { LibraryRepository(libraryApi) }

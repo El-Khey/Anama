@@ -29,6 +29,7 @@ fun MainScreen(
     onLogout: () -> Unit,
     onNovelClick: (Long) -> Unit,
     onOpenReader: (novelId: Long, chapterId: Long) -> Unit,
+    onOpenSettings: (route: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
@@ -89,7 +90,7 @@ fun MainScreen(
                 HistoryScreen(onOpenReader = onOpenReader)
             }
             composable(TopLevelDestination.Profile.route) {
-                ProfileScreen(onLogout = onLogout)
+                ProfileScreen(onLogout = onLogout, onOpenSettings = onOpenSettings)
             }
         }
     }

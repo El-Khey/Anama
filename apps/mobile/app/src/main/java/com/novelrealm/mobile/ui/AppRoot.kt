@@ -27,6 +27,7 @@ fun AppRoot(modifier: Modifier = Modifier) {
     val authViewModel: AuthViewModel = viewModel()
     val isAuthenticated by authViewModel.isAuthenticated.collectAsState()
     val form by authViewModel.form.collectAsState()
+    val sessionExpired by authViewModel.sessionExpired.collectAsState()
 
     if (isAuthenticated) {
         AppNavHost(
@@ -36,9 +37,11 @@ fun AppRoot(modifier: Modifier = Modifier) {
     } else {
         AuthFlow(
             form = form,
+            sessionExpired = sessionExpired,
             onLogin = authViewModel::login,
             onRegister = authViewModel::register,
             onClearError = authViewModel::clearError,
+            onExpiryShown = authViewModel::acknowledgeExpiry,
             modifier = modifier.systemBarsPadding(),
         )
     }
@@ -48,9 +51,11 @@ fun AppRoot(modifier: Modifier = Modifier) {
 @Composable
 private fun AuthFlow(
     form: AuthFormState,
+    sessionExpired: Boolean,
     onLogin: (email: String, password: String) -> Unit,
     onRegister: (pseudo: String, email: String, password: String) -> Unit,
     onClearError: () -> Unit,
+    onExpiryShown: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showRegister by rememberSaveable { mutableStateOf(false) }
@@ -65,8 +70,10 @@ private fun AuthFlow(
     } else {
         LoginScreen(
             form = form,
+            sessionExpired = sessionExpired,
             onSubmit = onLogin,
             onSwitchToRegister = { onClearError(); showRegister = true },
+            onExpiryShown = onExpiryShown,
             modifier = modifier,
         )
     }

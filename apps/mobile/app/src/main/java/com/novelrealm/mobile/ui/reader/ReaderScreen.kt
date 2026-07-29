@@ -33,6 +33,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -45,11 +46,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.novelrealm.mobile.di.ServiceLocator
 import com.novelrealm.mobile.ui.components.EmptyScreen
 import com.novelrealm.mobile.ui.components.LoadingScreen
 import com.novelrealm.mobile.ui.util.vmFactory
@@ -74,6 +78,33 @@ fun ReaderScreen(
     var chromeVisible by rememberSaveable { mutableStateOf(true) }
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
+
+    // Confort de lecture réglé dans Profil › Lecture : couleurs, typo et espacements.
+    val readerPrefs by ServiceLocator.preferencesStore.state.collectAsState()
+    val style = rememberReaderStyle(readerPrefs.reader)
+
+    // Empêche la mise en veille pendant la lecture, et restaure le comportement normal
+    // en quittant l'écran (sinon le réglage « fuiterait » sur le reste de l'app).
+    val view = LocalView.current
+    DisposableEffect(readerPrefs.reader.keepScreenOn) {
+        view.keepScreenOn = readerPrefs.reader.keepScreenOn
+        onDispose { view.keepScreenOn = false }
+    }
+
+    // Mode plein écran : masque les barres système, rendues à nouveau visibles quand
+    // les commandes du lecteur sont affichées (un tap) ou à la sortie de l'écran.
+    DisposableEffect(readerPrefs.reader.fullscreen, chromeVisible) {
+        val window = (view.context as? android.app.Activity)?.window
+        val controller = window?.let { WindowInsetsControllerCompat(it, view) }
+        controller?.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (readerPrefs.reader.fullscreen && !chromeVisible) {
+            controller?.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller?.show(WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
+    }
 
     // Pourcentage de lecture courant (0-100). -1 tant que la mise en page n'est pas mesurée.
     val percent by remember {
@@ -109,12 +140,15 @@ fun ReaderScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(style.background)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
             ) { chromeVisible = !chromeVisible },
     ) {
+        // Capturé une fois : évite un `return` depuis la lambda, qui sauterait aussi les
+        // barres de commandes déclarées plus bas dans ce même Box.
+        val chapter = state.chapter
         when {
             state.isLoading -> LoadingScreen()
             state.error != null -> EmptyScreen(
@@ -122,8 +156,7 @@ fun ReaderScreen(
                 actionLabel = "Retour",
                 onAction = onBack,
             )
-            state.chapter != null -> {
-                val chapter = state.chapter ?: return@Box
+            chapter != null -> {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -137,21 +170,30 @@ fun ReaderScreen(
                             ?: "Chapitre ${chapter.chapterNumber}",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
+                        color = style.foreground,
                     )
                     Spacer(Modifier.height(20.dp))
-                    Text(
-                        text = chapter.content,
-                        style = MaterialTheme.typography.bodyLarge.copy(
-                            fontSize = 17.sp,
-                            lineHeight = 28.sp,
-                        ),
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.92f),
-                    )
+                    // Le texte est découpé en paragraphes pour pouvoir appliquer l'écart
+                    // réglable entre eux (un seul bloc de texte ne le permettrait pas).
+                    val paragraphs = remember(chapter.content) {
+                        chapter.content.split('\n')
+                            .map { it.trim() }
+                            .filter { it.isNotEmpty() }
+                            .ifEmpty { listOf(chapter.content) }
+                    }
+                    paragraphs.forEachIndexed { index, paragraph ->
+                        if (index > 0) Spacer(Modifier.height(style.paragraphSpacing))
+                        Text(
+                            text = paragraph,
+                            style = style.textStyle,
+                            color = style.foreground,
+                        )
+                    }
                     Spacer(Modifier.height(40.dp))
                     Text(
                         text = "— Fin du chapitre —",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = style.foreground.copy(alpha = 0.55f),
                         modifier = Modifier.align(Alignment.CenterHorizontally),
                     )
                     Spacer(Modifier.height(24.dp))

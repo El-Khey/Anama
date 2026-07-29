@@ -9,6 +9,11 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.novelrealm.mobile.ui.detail.NovelDetailScreen
 import com.novelrealm.mobile.ui.main.MainScreen
+import com.novelrealm.mobile.ui.profile.AccountScreen
+import com.novelrealm.mobile.ui.profile.AppearanceScreen
+import com.novelrealm.mobile.ui.profile.EditProfileScreen
+import com.novelrealm.mobile.ui.profile.ReaderSettingsScreen
+import com.novelrealm.mobile.ui.profile.SettingsRoutes
 import com.novelrealm.mobile.ui.reader.ReaderScreen
 import com.novelrealm.mobile.ui.reviews.ReviewsScreen
 
@@ -27,8 +32,29 @@ fun AppNavHost(onLogout: () -> Unit, modifier: Modifier = Modifier) {
                 onOpenReader = { novelId, chapterId ->
                     navController.navigate("reader/$novelId/$chapterId")
                 },
+                onOpenSettings = { route -> navController.navigate(route) },
             )
         }
+
+        // ── Réglages, ouverts depuis l'onglet Profil (plein écran, comme le détail) ──
+        composable(SettingsRoutes.EDIT_PROFILE) {
+            EditProfileScreen(onBack = { navController.popBackStack() })
+        }
+        composable(SettingsRoutes.ACCOUNT) {
+            AccountScreen(
+                onBack = { navController.popBackStack() },
+                // Le compte n'existe plus : la session est déjà fermée, donc AppRoot
+                // bascule seul vers la connexion ; on dépile simplement cet écran.
+                onAccountDeleted = { navController.popBackStack() },
+            )
+        }
+        composable(SettingsRoutes.APPEARANCE) {
+            AppearanceScreen(onBack = { navController.popBackStack() })
+        }
+        composable(SettingsRoutes.READER) {
+            ReaderSettingsScreen(onBack = { navController.popBackStack() })
+        }
+
         composable(
             route = "novel/{novelId}",
             arguments = listOf(navArgument("novelId") { type = NavType.LongType }),
