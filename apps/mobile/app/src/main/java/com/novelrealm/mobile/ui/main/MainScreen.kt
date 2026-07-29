@@ -21,14 +21,14 @@ import com.novelrealm.mobile.ui.history.HistoryScreen
 import com.novelrealm.mobile.ui.library.LibraryScreen
 import com.novelrealm.mobile.ui.profile.ProfileScreen
 
-// Coquille principale de l'app connectée (#34) : une barre de navigation Material 3 en
-// bas + un NavHost qui affiche l'onglet courant. Comportement calqué sur Mihon : re-tap
-// sur l'onglet actif ne re-navigue pas, et l'état de chaque onglet est préservé quand on
-// bascule (saveState / restoreState).
+// Coquille principale de l'app connectée (#34/#35) : barre de navigation Material 3 en
+// bas + NavHost interne pour les 5 onglets. Les écrans plein-écran (détail, lecteur…)
+// vivent dans le NavHost RACINE (AppNavHost) et recouvrent cette coquille.
 @Composable
 fun MainScreen(
-    pseudo: String?,
     onLogout: () -> Unit,
+    onNovelClick: (Long) -> Unit,
+    onOpenReader: (novelId: Long, chapterId: Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
@@ -76,12 +76,20 @@ fun MainScreen(
             startDestination = TopLevelDestination.Discover.route,
             modifier = Modifier.padding(innerPadding),
         ) {
-            composable(TopLevelDestination.Discover.route) { DiscoverScreen() }
-            composable(TopLevelDestination.Explore.route) { ExploreScreen() }
-            composable(TopLevelDestination.Library.route) { LibraryScreen() }
-            composable(TopLevelDestination.History.route) { HistoryScreen() }
+            composable(TopLevelDestination.Discover.route) {
+                DiscoverScreen(onNovelClick = onNovelClick, onOpenReader = onOpenReader)
+            }
+            composable(TopLevelDestination.Explore.route) {
+                ExploreScreen(onNovelClick = onNovelClick)
+            }
+            composable(TopLevelDestination.Library.route) {
+                LibraryScreen(onNovelClick = onNovelClick)
+            }
+            composable(TopLevelDestination.History.route) {
+                HistoryScreen(onOpenReader = onOpenReader)
+            }
             composable(TopLevelDestination.Profile.route) {
-                ProfileScreen(pseudo = pseudo, onLogout = onLogout)
+                ProfileScreen(onLogout = onLogout)
             }
         }
     }

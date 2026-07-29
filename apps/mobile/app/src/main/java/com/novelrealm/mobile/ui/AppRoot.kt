@@ -13,12 +13,11 @@ import com.novelrealm.mobile.ui.auth.AuthFormState
 import com.novelrealm.mobile.ui.auth.AuthViewModel
 import com.novelrealm.mobile.ui.auth.LoginScreen
 import com.novelrealm.mobile.ui.auth.RegisterScreen
-import com.novelrealm.mobile.ui.main.MainScreen
 
 /**
  * Porte d'entrée de l'app : aiguillage selon l'état de session. Connecté →
- * [MainScreen] (la coquille à onglets, #34) ; sinon → le flux d'auth (login ⇄
- * register, #33).
+ * [AppNavHost] (navigation racine : onglets + détail + lecteur, #35) ; sinon →
+ * le flux d'auth (login ⇄ register, #33).
  *
  * L'[AuthViewModel] est résolu ici et **partagé** avec les écrans d'auth (même
  * portée que l'Activity), ce qui garde un seul état de session cohérent.
@@ -27,12 +26,10 @@ import com.novelrealm.mobile.ui.main.MainScreen
 fun AppRoot(modifier: Modifier = Modifier) {
     val authViewModel: AuthViewModel = viewModel()
     val isAuthenticated by authViewModel.isAuthenticated.collectAsState()
-    val pseudo by authViewModel.pseudo.collectAsState()
     val form by authViewModel.form.collectAsState()
 
     if (isAuthenticated) {
-        MainScreen(
-            pseudo = pseudo,
+        AppNavHost(
             onLogout = authViewModel::logout,
             modifier = modifier,
         )
