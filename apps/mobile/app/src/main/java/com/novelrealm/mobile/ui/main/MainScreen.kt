@@ -15,14 +15,13 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.novelrealm.mobile.ui.discover.DiscoverScreen
 import com.novelrealm.mobile.ui.explore.ExploreScreen
 import com.novelrealm.mobile.ui.history.HistoryScreen
 import com.novelrealm.mobile.ui.library.LibraryScreen
 import com.novelrealm.mobile.ui.profile.ProfileScreen
 
 // Coquille principale de l'app connectée (#34/#35) : barre de navigation Material 3 en
-// bas + NavHost interne pour les 5 onglets. Les écrans plein-écran (détail, lecteur…)
+// bas + NavHost interne pour les 4 onglets. Les écrans plein-écran (détail, lecteur…)
 // vivent dans le NavHost RACINE (AppNavHost) et recouvrent cette coquille.
 @Composable
 fun MainScreen(
@@ -74,17 +73,14 @@ fun MainScreen(
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = TopLevelDestination.Discover.route,
+            startDestination = TopLevelDestination.Library.route,
             modifier = Modifier.padding(innerPadding),
         ) {
-            composable(TopLevelDestination.Discover.route) {
-                DiscoverScreen(onNovelClick = onNovelClick, onOpenReader = onOpenReader)
+            composable(TopLevelDestination.Library.route) {
+                LibraryScreen(onNovelClick = onNovelClick)
             }
             composable(TopLevelDestination.Explore.route) {
                 ExploreScreen(onNovelClick = onNovelClick)
-            }
-            composable(TopLevelDestination.Library.route) {
-                LibraryScreen(onNovelClick = onNovelClick)
             }
             composable(TopLevelDestination.History.route) {
                 HistoryScreen(onOpenReader = onOpenReader)

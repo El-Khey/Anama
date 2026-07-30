@@ -32,7 +32,8 @@ public class NovelService {
     /**
      * Recherche/filtre/tri paginé du catalogue. Critères optionnels et
      * combinables ({@code q}, {@code status}, {@code genreId}). Tri au choix :
-     * {@code recent} (défaut), {@code title} (A→Z), {@code popularity}.
+     * {@code recent} (défaut), {@code title} (A→Z), {@code popularity},
+     * {@code rating}.
      */
     public Page<Novel> search(String q, NovelStatus status, Long genreId, String sort, int page, int size) {
         // Motif LIKE précalculé (minuscules, encadré de %) ou null si pas de recherche.
@@ -45,6 +46,9 @@ public class NovelService {
                     PageRequest.of(safePage, safeSize, Sort.by("title").ascending()));
             // Le tri popularité est porté par la requête → pagination seule.
             case "popularity" -> novelRepository.searchByPopularity(pattern, status, genreId,
+                    PageRequest.of(safePage, safeSize));
+            // Idem pour la note moyenne (les sans-avis sont relégués en fin de liste).
+            case "rating" -> novelRepository.searchByRating(pattern, status, genreId,
                     PageRequest.of(safePage, safeSize));
             // "recent" (défaut) : les derniers ajoutés d'abord.
             default -> novelRepository.search(pattern, status, genreId,

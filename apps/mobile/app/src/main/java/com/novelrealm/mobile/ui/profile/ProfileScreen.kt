@@ -2,7 +2,6 @@ package com.novelrealm.mobile.ui.profile
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,18 +19,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.AutoStories
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.CollectionsBookmark
-import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -49,7 +43,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -62,7 +55,6 @@ import com.novelrealm.mobile.data.remote.dto.UserStatsDto
 import com.novelrealm.mobile.data.remote.resolveImageUrl
 import com.novelrealm.mobile.ui.NovelRealmWordmark
 import com.novelrealm.mobile.ui.components.EmptyScreen
-import com.novelrealm.mobile.ui.components.IconTile
 import com.novelrealm.mobile.ui.components.LoadingScreen
 import com.novelrealm.mobile.ui.components.SettingsDivider
 import com.novelrealm.mobile.ui.components.SettingsRow
@@ -104,12 +96,10 @@ fun ProfileScreen(
                 ) {
                     ProfileHero(user)
 
-                    Spacer(Modifier.height(24.dp))
+                    Spacer(Modifier.height(8.dp))
                     state.stats?.let { stats ->
-                        ReadingSummary(stats)
+                        ReadingStats(stats)
                         Spacer(Modifier.height(20.dp))
-                        StatsGrid(stats)
-                        Spacer(Modifier.height(28.dp))
                     }
 
                     SettingsSection(title = "Compte") {
@@ -323,145 +313,142 @@ private fun ProviderBadge(provider: String?) {
 }
 
 /**
- * Bandeau de tête des statistiques : la série de lecture, mise en scène sur un dégradé
- * d'accent — c'est l'information qui donne envie de revenir chaque jour.
+ * Statistiques de lecture, réunies dans **une seule carte** au lieu d'une mosaïque de
+ * vignettes multicolores : trois chiffres de tête, puis les valeurs secondaires en
+ * lignes.
+ *
+ * Chaque nombre n'apparaît qu'une fois — l'ancienne version affichait le record de série
+ * à la fois dans le bandeau et dans une vignette. Et la couleur d'accent ne sert plus
+ * qu'à **un** repère (la série en cours) : une teinte différente par vignette ne
+ * hiérarchisait rien, elle ajoutait juste du bruit.
  */
 @Composable
-private fun ReadingSummary(stats: UserStatsDto) {
-    Surface(
-        shape = RoundedCornerShape(24.dp),
-        color = Color.Transparent,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-    ) {
-        Box(
-            modifier = Modifier.background(
-                Brush.linearGradient(
-                    listOf(
-                        MaterialTheme.colorScheme.primary,
-                        MaterialTheme.colorScheme.tertiary,
-                    ),
-                ),
-            ),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 18.dp),
-            ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(52.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.22f)),
-                ) {
-                    Icon(
-                        Icons.Filled.LocalFireDepartment,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(28.dp),
-                    )
-                }
-                Spacer(Modifier.width(16.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = when (stats.currentStreak) {
-                            0L -> "Aucune série en cours"
-                            1L -> "1 jour d'affilée"
-                            else -> "${stats.currentStreak} jours d'affilée"
-                        },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                    )
-                    Text(
-                        text = if (stats.currentStreak == 0L) "Lis un chapitre pour lancer ta série"
-                        else "Record : ${stats.longestStreak} j · ${stats.readingDays} jours de lecture",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.85f),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** Grille de statistiques 2 colonnes : pastille colorée, valeur en gras, libellé court. */
-@Composable
-private fun StatsGrid(stats: UserStatsDto) {
-    val items = listOf(
-        StatItem(Icons.Filled.AutoStories, stats.chaptersRead, "Chapitres lus", MaterialTheme.colorScheme.primary),
-        StatItem(Icons.Filled.CollectionsBookmark, stats.novelsFollowed, "Romans suivis", Color(0xFF3B82F6)),
-        StatItem(Icons.Filled.TaskAlt, stats.novelsCompleted, "Romans terminés", Color(0xFF10B981)),
-        StatItem(Icons.Filled.Bookmark, stats.chaptersFavorited, "Chapitres en signet", Color(0xFF8B5CF6)),
-        StatItem(Icons.Filled.EmojiEvents, stats.longestStreak, "Meilleure série", Color(0xFFF59E0B)),
-        StatItem(Icons.Filled.CalendarMonth, stats.readingDays, "Jours de lecture", Color(0xFFEC4899)),
-    )
-
-    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-        Text(
-            text = "Statistiques",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(start = 8.dp, bottom = 12.dp),
-        )
-        items.chunked(2).forEach { rowItems ->
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                rowItems.forEach { item ->
-                    StatCard(item = item, modifier = Modifier.weight(1f))
-                }
-                if (rowItems.size == 1) Spacer(Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(12.dp))
-        }
-    }
-}
-
-private data class StatItem(
-    val icon: ImageVector,
-    val value: Long,
-    val label: String,
-    val color: Color,
-)
-
-@Composable
-private fun StatCard(item: StatItem, modifier: Modifier = Modifier) {
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(20.dp),
-        tonalElevation = 1.dp,
-        modifier = modifier,
-    ) {
+private fun ReadingStats(stats: UserStatsDto) {
+    SettingsSection(title = "Statistiques") {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 16.dp),
+                .padding(vertical = 20.dp),
         ) {
-            IconTile(icon = item.icon, tint = item.color, size = 38)
-            Spacer(Modifier.width(12.dp))
-            Column {
-                Text(
-                    text = "${item.value}",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = item.label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            Figure(stats.chaptersRead, "Chapitres lus", Modifier.weight(1f))
+            FigureSeparator()
+            Figure(stats.novelsFollowed, "Romans suivis", Modifier.weight(1f))
+            FigureSeparator()
+            Figure(stats.novelsCompleted, "Terminés", Modifier.weight(1f))
         }
+
+        StatsDivider()
+        StreakRow(stats)
+        StatsDivider()
+        StatRow("Meilleure série", dayCount(stats.longestStreak))
+        StatsDivider()
+        StatRow("Jours de lecture", dayCount(stats.readingDays))
+        StatsDivider()
+        StatRow("Chapitres en signet", "${stats.chaptersFavorited}")
     }
 }
+
+/** Un chiffre de tête et son libellé, centrés. */
+@Composable
+private fun Figure(value: Long, label: String, modifier: Modifier = Modifier) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
+        Text(
+            text = "$value",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+    }
+}
+
+/** Filet vertical entre deux chiffres de tête. */
+@Composable
+private fun FigureSeparator() {
+    Box(
+        modifier = Modifier
+            .width(1.dp)
+            .height(34.dp)
+            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+    )
+}
+
+/**
+ * Filet pleine largeur. `SettingsDivider` ne convient pas ici : son retrait de 68 dp
+ * l'aligne sous les pastilles d'icônes des lignes de réglage, or ces lignes-ci n'en
+ * ont pas.
+ */
+@Composable
+private fun StatsDivider() {
+    HorizontalDivider(
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+        modifier = Modifier.padding(horizontal = 16.dp),
+    )
+}
+
+/** La série en cours : le seul repère coloré de la carte, et seulement s'il est vivant. */
+@Composable
+private fun StreakRow(stats: UserStatsDto) {
+    val alive = stats.currentStreak > 0
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+    ) {
+        Icon(
+            Icons.Filled.LocalFireDepartment,
+            contentDescription = null,
+            tint = if (alive) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = "Série en cours",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = if (alive) dayCount(stats.currentStreak) else "—",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = if (alive) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** Ligne « libellé à gauche, valeur à droite ». */
+@Composable
+private fun StatRow(label: String, value: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+private fun dayCount(days: Long): String = if (days <= 1) "$days jour" else "$days jours"

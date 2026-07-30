@@ -39,7 +39,8 @@ public class NovelController {
      * @param q       recherche titre ou auteur (insensible à la casse)
      * @param genreId filtre par genre
      * @param status  filtre par statut ({@code ONGOING} / {@code COMPLETED})
-     * @param sort    {@code recent} (défaut) · {@code title} · {@code popularity}
+     * @param sort    {@code recent} (défaut) · {@code title} · {@code popularity} ·
+     *                {@code rating}
      * @param page    numéro de page (défaut 0)
      * @param size    taille de page (défaut 20, max 100)
      */

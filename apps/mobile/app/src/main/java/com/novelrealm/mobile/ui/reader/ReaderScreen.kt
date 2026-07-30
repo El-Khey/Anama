@@ -87,6 +87,7 @@ import com.novelrealm.mobile.data.remote.dto.displayTitle
 import com.novelrealm.mobile.di.ServiceLocator
 import com.novelrealm.mobile.ui.components.EmptyScreen
 import com.novelrealm.mobile.ui.components.LoadingScreen
+import com.novelrealm.mobile.ui.components.SheetScrim
 import com.novelrealm.mobile.ui.util.vmFactory
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -415,7 +416,7 @@ fun ReaderScreen(
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize(),
         ) {
-            ReaderSheetScrim(
+            SheetScrim(
                 onDismiss = { settingsVisible = false },
                 modifier = Modifier.fillMaxSize(),
             )

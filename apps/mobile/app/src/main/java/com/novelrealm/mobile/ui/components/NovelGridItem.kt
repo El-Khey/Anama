@@ -9,7 +9,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -47,6 +52,8 @@ fun NovelGridItem(
     unreadCount: Long = 0,
     /** Part de chapitres lus (0f..1f) ; null si inconnue → aucune barre affichée. */
     readFraction: Float? = null,
+    /** Marque le roman comme déjà suivi (utile dans le catalogue). */
+    inLibrary: Boolean = false,
     selected: Boolean = false,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -134,6 +141,27 @@ fun NovelGridItem(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                )
+            }
+        }
+
+        // Cœur discret en haut à gauche : dans le catalogue, savoir ce qu'on suit déjà
+        // évite de rouvrir des fiches pour rien.
+        if (inLibrary) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp)
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xB3000000)),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Favorite,
+                    contentDescription = "Déjà dans ta bibliothèque",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(13.dp),
                 )
             }
         }
