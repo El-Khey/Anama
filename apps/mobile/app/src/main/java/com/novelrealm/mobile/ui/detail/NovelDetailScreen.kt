@@ -1,32 +1,42 @@
 package com.novelrealm.mobile.ui.detail
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListLayoutInfo
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -80,8 +90,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
@@ -89,12 +102,16 @@ import com.novelrealm.mobile.data.remote.dto.CategoryDto
 import com.novelrealm.mobile.data.remote.dto.ChapterDto
 import com.novelrealm.mobile.data.remote.dto.ChapterProgressDto
 import com.novelrealm.mobile.data.remote.dto.NovelDetailDto
+import com.novelrealm.mobile.data.remote.dto.displayTitle
 import com.novelrealm.mobile.data.remote.resolveImageUrl
 import com.novelrealm.mobile.ui.components.EmptyScreen
 import com.novelrealm.mobile.ui.components.LoadingScreen
 import com.novelrealm.mobile.ui.components.NovelCover
 import com.novelrealm.mobile.ui.util.ReadingStatus
 import com.novelrealm.mobile.ui.util.vmFactory
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 
 /**
  * Fiche d'un roman : en-tête à couverture floutée, actions, avancement de lecture,
@@ -204,16 +221,6 @@ private fun DetailContent(
                 )
             }
 
-            if (state.chapters.isNotEmpty()) {
-                item(key = "progress") {
-                    ReadingProgressCard(
-                        readCount = state.readCount,
-                        total = state.chapters.size,
-                        fraction = state.readFraction,
-                    )
-                }
-            }
-
             item(key = "description") { ExpandableDescription(novel = novel) }
 
             item(key = "chapterHeader") {
@@ -245,6 +252,17 @@ private fun DetailContent(
                 )
             }
         }
+
+        // Avec plusieurs centaines de chapitres, faire défiler au doigt est interminable :
+        // la pastille se saisit et parcourt toute la liste d'un geste.
+        //
+        // Les chapitres sont les seuls items indexés par un identifiant numérique — les
+        // blocs d'en-tête ont des clés textuelles. La barre s'en sert pour savoir quand
+        // elle survole la liste, sans qu'on ait à compter les items qui la précèdent.
+        ChapterFastScroller(
+            listState = listState,
+            isChapterKey = { key -> key is Long },
+        )
 
         // Bouton principal : masqué pendant la sélection, où il gênerait les actions.
         val resume = state.resumeChapter
@@ -458,7 +476,9 @@ private fun DetailActionButton(
 /** Rangée de pastilles de statut : un appui suffit, y compris si le roman n'est pas suivi. */
 @Composable
 private fun ReadingStatusRow(current: String?, onSelect: (String) -> Unit) {
-    Column(modifier = Modifier.padding(top = 4.dp)) {
+    // `bottom` : sans lui les pastilles touchent le synopsis, et les deux blocs se
+    // lisent comme un seul pavé.
+    Column(modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)) {
         Text(
             text = "STATUT DE LECTURE",
             style = MaterialTheme.typography.labelSmall,
@@ -500,58 +520,6 @@ private fun ReadingStatusRow(current: String?, onSelect: (String) -> Unit) {
                         )
                     }
                 }
-            }
-        }
-    }
-}
-
-/** Carte d'avancement : combien de chapitres lus, et une barre de progression. */
-@Composable
-private fun ReadingProgressCard(readCount: Int, total: Int, fraction: Float) {
-    Surface(
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(18.dp),
-        tonalElevation = 1.dp,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 16.dp),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = when {
-                        readCount == 0 -> "Pas encore commencé"
-                        readCount >= total -> "Terminé ! 🎉"
-                        else -> "$readCount / $total chapitres lus"
-                    },
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = "${(fraction * 100).toInt()} %",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            Spacer(Modifier.height(10.dp))
-            // Barre dessinée à la main : `LinearProgressIndicator` a changé de signature
-            // entre versions de Material 3, deux Box sont insensibles à ce risque.
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(6.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(fraction.coerceIn(0f, 1f))
-                        .fillMaxHeight()
-                        .clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.primary),
-                )
             }
         }
     }
@@ -753,7 +721,7 @@ private fun ChapterRow(
                     Spacer(Modifier.width(4.dp))
                 }
                 Text(
-                    text = chapter.title?.takeIf { it.isNotBlank() } ?: "Chapitre ${chapter.chapterNumber}",
+                    text = chapter.displayTitle,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = if (read) FontWeight.Normal else FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = if (read) 0.45f else 1f),
@@ -819,6 +787,167 @@ private fun ChapterRow(
         }
     }
 }
+
+// ── Défilement rapide ──────────────────────────────────────────────────────────
+
+private val ThumbLength = 48.dp
+private val ThumbThickness = 10.dp
+
+/** Marge autour de la pastille : elle décolle du bord ET élargit la zone d'accroche. */
+private val ThumbPadding = 8.dp
+
+/** Délai d'inactivité avant que la pastille ne s'efface, puis durée du fondu. */
+private const val ThumbFadeDelayMillis = 1500L
+private const val ThumbFadeOutMillis = 300
+
+/**
+ * Barre de défilement rapide, sur le modèle de celle de Mihon (dont l'approche est
+ * reprise ici, pas le code).
+ *
+ * Quatre partis pris, qui sont ce qui la rend agréable :
+ *
+ * 1. **Pastille de taille fixe**, superposée à la liste. Elle ne réserve aucune place :
+ *    les lignes de chapitre occupent toute la largeur, comme avant.
+ * 2. **Un seul état partagé**, `thumbOffsetY`, piloté dans les deux sens — on tire la
+ *    pastille et la liste suit, on fait défiler la liste et la pastille suit. Un seul
+ *    état, donc aucune boucle de rétroaction entre les deux.
+ * 3. **Estimation en pixels**, pas en index : la course totale vaut « taille moyenne
+ *    d'un item × nombre d'items ». On vise donc une position continue, là où un calcul
+ *    par index faisait sauter la liste de chapitre en chapitre.
+ * 4. **`draggable` plutôt qu'un suivi du doigt** : le geste travaille en *delta*, donc
+ *    la pastille ne saute jamais sous le doigt au moment de la saisie, et seule la
+ *    pastille elle-même est saisissable (48 dp de haut) — pas une bande sur toute la
+ *    hauteur qui volerait les appuis destinés aux lignes.
+ *
+ * @param isChapterKey reconnaît un item « chapitre » à sa clé. La pastille reste
+ *   masquée tant que le haut de l'écran n'est pas un chapitre : elle n'a pas à flotter
+ *   par-dessus la couverture du roman.
+ */
+@Composable
+private fun ChapterFastScroller(
+    listState: LazyListState,
+    isChapterKey: (Any) -> Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val layoutInfo = listState.layoutInfo
+    val visibleItems = layoutInfo.visibleItemsInfo
+    if (visibleItems.isEmpty() || layoutInfo.totalItemsCount == 0) return
+
+    val density = LocalDensity.current
+    val thumbLengthPx = with(density) { ThumbLength.toPx() }
+
+    // Hauteur réellement parcourable par la pastille (hors barres système).
+    var trackAreaPx by remember { mutableStateOf(0f) }
+    val trackLengthPx = (trackAreaPx - thumbLengthPx).coerceAtLeast(1f)
+
+    var thumbOffsetY by remember { mutableStateOf(0f) }
+    val dragSource = remember { MutableInteractionSource() }
+    val isDragged by dragSource.collectIsDraggedAsState()
+
+    // Estimation de la course : la taille moyenne des items mesurés à l'écran, étendue
+    // au total. Compose ne connaît pas la hauteur de ce qu'il n'a pas composé ; les
+    // lignes de chapitre étant régulières, l'estimation se stabilise dès qu'on est dans
+    // la liste — et c'est justement le seul moment où la pastille est visible.
+    val averageItemSizePx = layoutInfo.averageItemSize()
+    val extraScrollPx = (averageItemSizePx * layoutInfo.totalItemsCount - trackAreaPx)
+        .coerceAtLeast(1f)
+
+    val scrollable = averageItemSizePx > 0f &&
+        visibleItems.size < layoutInfo.totalItemsCount
+    val overChapters = visibleItems.first().key.let(isChapterKey)
+    val thumbAllowed = scrollable && overChapters
+
+    // La liste bouge → la pastille suit.
+    LaunchedEffect(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
+        if (isDragged) return@LaunchedEffect
+        val scrolledPx = listState.firstVisibleItemIndex * averageItemSizePx +
+            listState.firstVisibleItemScrollOffset
+        thumbOffsetY = (scrolledPx / extraScrollPx).coerceIn(0f, 1f) * trackLengthPx
+    }
+
+    // La pastille bouge → la liste suit. Le reste de la division devient un décalage en
+    // pixels DANS l'item visé : c'est lui qui rend le glissement continu.
+    LaunchedEffect(thumbOffsetY) {
+        if (!isDragged || averageItemSizePx <= 0f) return@LaunchedEffect
+        val targetPx = (thumbOffsetY / trackLengthPx).coerceIn(0f, 1f) * extraScrollPx
+        val index = (targetPx / averageItemSizePx).toInt()
+            .coerceIn(0, layoutInfo.totalItemsCount - 1)
+        val offset = (targetPx - index * averageItemSizePx).roundToInt().coerceAtLeast(0)
+        listState.scrollToItem(index, offset)
+    }
+
+    // Apparition immédiate au premier geste, effacement après un temps mort.
+    val alpha = remember { Animatable(0f) }
+    val isThumbVisible = alpha.value > 0f
+    LaunchedEffect(thumbAllowed, listState.isScrollInProgress, isDragged) {
+        when {
+            !thumbAllowed -> alpha.animateTo(0f, tween(ThumbFadeOutMillis))
+            listState.isScrollInProgress || isDragged -> alpha.snapTo(1f)
+            else -> {
+                alpha.snapTo(1f)
+                delay(ThumbFadeDelayMillis)
+                alpha.animateTo(0f, tween(ThumbFadeOutMillis))
+            }
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .onSizeChanged { trackAreaPx = it.height.toFloat() },
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .offset { IntOffset(0, thumbOffsetY.roundToInt()) }
+                .then(
+                    // Pas saisissable pendant que la liste défile d'elle-même : on
+                    // attraperait la pastille en pleine inertie.
+                    if (isThumbVisible && !listState.isScrollInProgress) {
+                        Modifier.draggable(
+                            interactionSource = dragSource,
+                            orientation = Orientation.Vertical,
+                            state = rememberDraggableState { delta ->
+                                thumbOffsetY = (thumbOffsetY + delta).coerceIn(0f, trackLengthPx)
+                            },
+                        )
+                    } else {
+                        Modifier
+                    },
+                )
+                .then(
+                    // Sans ça, en navigation par gestes, tirer la pastille près du bord
+                    // déclencherait le retour système.
+                    if (isThumbVisible) Modifier.systemGestureExclusion() else Modifier,
+                )
+                .height(ThumbLength)
+                .padding(horizontal = ThumbPadding)
+                .width(ThumbThickness)
+                .alpha(alpha.value)
+                .background(
+                    color = MaterialTheme.colorScheme.primary,
+                    shape = RoundedCornerShape(percent = 50),
+                ),
+        )
+    }
+}
+
+/**
+ * Taille moyenne d'un item, mesurée sur ceux qui sont à l'écran — la seule information
+ * de hauteur dont Compose dispose pour une liste paresseuse.
+ */
+private fun LazyListLayoutInfo.averageItemSize(): Float {
+    val items = visibleItemsInfo
+    if (items.isEmpty()) return 0f
+    val first = items.first()
+    val last = items.last()
+    val laidOutArea = (last.offset + last.size) - first.offset
+    val laidOutCount = abs(last.index - first.index) + 1
+    return laidOutArea.toFloat() / laidOutCount
+}
+
 
 // ── Barres flottantes ──────────────────────────────────────────────────────────
 

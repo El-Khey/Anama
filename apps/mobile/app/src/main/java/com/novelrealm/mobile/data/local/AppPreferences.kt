@@ -72,12 +72,21 @@ data class ReaderPrefs(
     val theme: ReaderTheme = ReaderTheme.LIGHT,
     val keepScreenOn: Boolean = true,   // spécifique mobile
     val fullscreen: Boolean = false,    // spécifique mobile (masque les barres système)
+    /**
+     * Marge latérale du texte, en dp (0 = le texte occupe toute la largeur).
+     *
+     * Clé propre au mobile : le web règle la largeur de ligne par paliers nommés
+     * (`widthId`), notion qui n'a pas de sens sur un téléphone où l'écran est déjà
+     * étroit. On ne touche donc pas à `widthId`, qui reste préservé tel quel.
+     */
+    val margin: Int = 20,               // 0..40 dp
 ) {
     companion object {
         val DEFAULT = ReaderPrefs()
         val FONT_SIZE_RANGE = 14f..30f
         val LINE_HEIGHT_RANGE = 1.3f..2.4f
         val PARAGRAPH_GAP_RANGE = 0.4f..2.4f
+        val MARGIN_RANGE = 0f..40f
     }
 }
 

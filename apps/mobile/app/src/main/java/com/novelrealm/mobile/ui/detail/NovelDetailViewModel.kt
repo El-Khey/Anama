@@ -40,10 +40,6 @@ data class NovelDetailUiState(
 
     val readCount: Int get() = chapters.count { progress[it.id]?.read == true }
 
-    /** Part de chapitres lus (0f..1f) ; 0 si le roman n'a aucun chapitre. */
-    val readFraction: Float
-        get() = if (chapters.isEmpty()) 0f else readCount.toFloat() / chapters.size
-
     /** Premier chapitre non lu, dans l'ordre naturel — cible du bouton Reprendre. */
     val resumeChapter: ChapterDto?
         get() = chapters.firstOrNull { progress[it.id]?.read != true }

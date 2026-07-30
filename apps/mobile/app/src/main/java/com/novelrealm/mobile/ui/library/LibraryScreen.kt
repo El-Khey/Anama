@@ -18,15 +18,20 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.FilterListOff
 import androidx.compose.material.icons.filled.HeartBroken
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,9 +49,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -59,10 +67,15 @@ import com.novelrealm.mobile.ui.util.ReadingStatus
 import kotlinx.coroutines.launch
 
 /**
- * Onglet Bibliothèque, structuré comme celui de Mihon : des onglets défilables (statuts
- * de lecture puis étagères personnelles, chacun avec son compteur) au-dessus d'un
- * **pager** — on passe donc d'une catégorie à l'autre en glissant le doigt, et le
+ * Onglet Bibliothèque, structuré comme celui de Mihon : des onglets défilables au-dessus
+ * d'un **pager** — on passe donc d'une catégorie à l'autre en glissant le doigt, et le
  * soulignement de l'onglet suit le geste.
+ *
+ * Les onglets ne contiennent **que** « Tous » et les étagères créées par l'utilisateur,
+ * toutes renommables et supprimables. Le statut de lecture (À lire / En cours / En pause
+ * / Terminé) n'est pas une étagère : c'est un **filtre**, dans l'en-tête, qui s'applique
+ * à l'onglet affiché — on peut donc voir « les romans en cours de telle étagère », ce que
+ * des onglets séparés ne permettaient pas.
  *
  * Un **appui long** sur une couverture ouvre les actions rapides (changer de statut,
  * retirer) : classer un roman ne demande pas d'ouvrir sa fiche.
@@ -82,8 +95,10 @@ fun LibraryScreen(
     var showRenameDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var quickActionsFor by remember { mutableStateOf<NovelDto?>(null) }
+    // `rememberSaveable` : le filtre survit à une rotation ou au passage en arrière-plan.
+    var statusFilter by rememberSaveable { mutableStateOf<String?>(null) }
 
-    val tabs = rememberLibraryTabs(state)
+    val tabs = rememberLibraryTabs(state, statusFilter)
     val pagerState = rememberPagerState(pageCount = { tabs.size })
     val scope = rememberCoroutineScope()
 
@@ -97,14 +112,22 @@ fun LibraryScreen(
     Column(modifier = modifier.fillMaxSize()) {
         LibraryHeader(
             total = state.entries.size,
+            statusFilter = statusFilter,
+            onStatusFilterChange = { statusFilter = it },
             onCreateShelf = { showCreateDialog = true },
         )
 
         if (tabs.isNotEmpty()) {
             ScrollableTabRow(
                 selectedTabIndex = safePage,
-                edgePadding = 12.dp,
-                divider = { HorizontalDivider() },
+                edgePadding = 16.dp,
+                // Fond transparent : l'en-tête et les onglets forment un seul bloc, au
+                // lieu de deux bandes de teintes voisines qui se cherchent.
+                containerColor = Color.Transparent,
+                // Le séparateur par défaut est posé DANS la zone défilable : il s'arrêtait
+                // donc à la fin des onglets, à quelques dizaines de pixels du bord droit.
+                // On le sort de là pour en tracer un vrai, pleine largeur et discret.
+                divider = {},
             ) {
                 tabs.forEachIndexed { index, tab ->
                     Tab(
@@ -112,10 +135,25 @@ fun LibraryScreen(
                         // `animateScrollToPage` : le contenu glisse au lieu de sauter,
                         // exactement comme quand on balaie l'écran à la main.
                         onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
-                        text = { TabLabel(label = tab.label, count = tab.novels.size) },
+                        // Material 3 donne par défaut la MÊME couleur aux onglets actif et
+                        // inactifs : tous ressortaient en accent, et seul le soulignement
+                        // distinguait la sélection. On rend les inactifs sourds.
+                        selectedContentColor = MaterialTheme.colorScheme.primary,
+                        unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = {
+                            TabLabel(
+                                label = tab.label,
+                                count = tab.novels.size,
+                                selected = index == safePage,
+                            )
+                        },
                     )
                 }
             }
+            HorizontalDivider(
+                thickness = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+            )
         }
 
         // Actions de l'étagère affichée (renommer / supprimer).
@@ -169,7 +207,7 @@ fun LibraryScreen(
                             message = emptyMessage(
                                 isShelf = tab.shelf != null,
                                 libraryEmpty = state.entries.isEmpty(),
-                                filterLabel = tab.label,
+                                statusFilter = statusFilter,
                             ),
                         )
                     } else {
@@ -253,31 +291,33 @@ private data class LibraryTab(
 )
 
 /**
- * Construit les pages : « Tous », les 4 statuts, puis les étagères.
+ * Construit les pages : « Tous » puis les étagères de l'utilisateur — et rien d'autre,
+ * pour que chaque onglet corresponde à quelque chose qu'il a créé et peut supprimer.
+ *
+ * Le filtre de statut s'applique ici, à toutes les pages d'un coup : c'est une lecture
+ * transversale de la bibliothèque, pas une page supplémentaire.
  *
  * `distinctBy` : une clé dupliquée dans une grille Lazy provoque un plantage
  * (« Key was already used »), garde-fou peu coûteux.
  */
 @Composable
-private fun rememberLibraryTabs(state: LibraryUiState): List<LibraryTab> = remember(state) {
+private fun rememberLibraryTabs(
+    state: LibraryUiState,
+    statusFilter: String?,
+): List<LibraryTab> = remember(state, statusFilter) {
+    // Une seule passe sur les entrées : les étagères ne portent pas le statut, il faut
+    // le retrouver par roman (sinon on referait une recherche linéaire par couverture).
+    val statusByNovel = state.entries.associate { it.novel.id to it.status }
+    fun List<NovelDto>.applyFilter(): List<NovelDto> =
+        if (statusFilter == null) this else filter { statusByNovel[it.id] == statusFilter }
+
     buildList {
-        add(LibraryTab("Tous", state.entries.map { it.novel }.distinctBy { it.id }))
-        ReadingStatus.entries.forEach { status ->
-            add(
-                LibraryTab(
-                    label = status.label,
-                    novels = state.entries
-                        .filter { it.status == status.id }
-                        .map { it.novel }
-                        .distinctBy { it.id },
-                ),
-            )
-        }
+        add(LibraryTab("Tous", state.entries.map { it.novel }.distinctBy { it.id }.applyFilter()))
         state.categories.forEach { shelf ->
             add(
                 LibraryTab(
                     label = shelf.name,
-                    novels = shelf.novels.distinctBy { it.id },
+                    novels = shelf.novels.distinctBy { it.id }.applyFilter(),
                     shelf = shelf,
                 ),
             )
@@ -285,14 +325,22 @@ private fun rememberLibraryTabs(state: LibraryUiState): List<LibraryTab> = remem
     }
 }
 
-/** Titre + total suivi + création d'étagère. */
+/** Titre + total suivi + filtre par statut + création d'étagère. */
 @Composable
-private fun LibraryHeader(total: Int, onCreateShelf: () -> Unit) {
+private fun LibraryHeader(
+    total: Int,
+    statusFilter: String?,
+    onStatusFilterChange: (String?) -> Unit,
+    onCreateShelf: () -> Unit,
+) {
+    var filterMenuOpen by remember { mutableStateOf(false) }
+    val activeStatus = ReadingStatus.fromId(statusFilter)
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 8.dp),
+            .padding(start = 20.dp, end = 16.dp, top = 14.dp, bottom = 12.dp),
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -301,38 +349,160 @@ private fun LibraryHeader(total: Int, onCreateShelf: () -> Unit) {
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                text = if (total <= 1) "$total roman suivi" else "$total romans suivis",
+                // Le filtre actif est rappelé ici : sinon une bibliothèque filtrée
+                // ressemble à une bibliothèque vide, sans qu'on sache pourquoi.
+                text = buildString {
+                    append(if (total <= 1) "$total roman suivi" else "$total romans suivis")
+                    if (activeStatus != null) append(" · ${activeStatus.label}")
+                },
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (activeStatus != null) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        IconButton(onClick = onCreateShelf) {
+
+        Box {
+            // Le filtre se remplit d'accent quand il est actif : l'état se voit sur le
+            // bouton lui-même, pas seulement dans le sous-titre.
+            HeaderAction(
+                icon = if (activeStatus != null) Icons.Filled.FilterListOff
+                else Icons.Filled.FilterList,
+                contentDescription = "Filtrer par statut de lecture",
+                filled = activeStatus != null,
+                onClick = { filterMenuOpen = true },
+            )
+            DropdownMenu(expanded = filterMenuOpen, onDismissRequest = { filterMenuOpen = false }) {
+                StatusFilterItem(
+                    label = "Tous les statuts",
+                    icon = Icons.Filled.FilterListOff,
+                    selected = statusFilter == null,
+                    onClick = { filterMenuOpen = false; onStatusFilterChange(null) },
+                )
+                HorizontalDivider()
+                ReadingStatus.entries.forEach { status ->
+                    StatusFilterItem(
+                        label = status.label,
+                        icon = status.icon,
+                        selected = status.id == statusFilter,
+                        // Re-toucher le statut déjà actif le retire : pas besoin de
+                        // rouvrir le menu pour revenir à la vue complète.
+                        onClick = {
+                            filterMenuOpen = false
+                            onStatusFilterChange(if (status.id == statusFilter) null else status.id)
+                        },
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.width(10.dp))
+        HeaderAction(
+            icon = Icons.Filled.CreateNewFolder,
+            contentDescription = "Créer une étagère",
+            filled = true,
+            onClick = onCreateShelf,
+        )
+    }
+}
+
+/**
+ * Bouton d'en-tête : pastille ronde de 42 dp. Les deux actions ont ainsi la même
+ * silhouette — une icône nue à côté d'une pastille pleine donnait deux poids visuels
+ * différents pour deux commandes de même rang.
+ */
+@Composable
+private fun HeaderAction(
+    icon: ImageVector,
+    contentDescription: String,
+    filled: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = if (filled) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.surfaceVariant,
+        shape = CircleShape,
+        modifier = Modifier.size(42.dp),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.clickable(onClick = onClick),
+        ) {
             Icon(
-                Icons.Filled.CreateNewFolder,
-                contentDescription = "Créer une étagère",
-                tint = MaterialTheme.colorScheme.primary,
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = if (filled) MaterialTheme.colorScheme.onPrimary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
             )
         }
     }
 }
 
-/** Libellé d'onglet avec son compteur, façon Mihon. */
 @Composable
-private fun TabLabel(label: String, count: Int) {
+private fun StatusFilterItem(
+    label: String,
+    icon: ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    DropdownMenuItem(
+        text = {
+            Text(
+                text = label,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = if (selected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurface,
+            )
+        },
+        leadingIcon = {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = if (selected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        trailingIcon = {
+            if (selected) {
+                Icon(
+                    Icons.Filled.Check,
+                    contentDescription = "Filtre actif",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        },
+        onClick = onClick,
+    )
+}
+
+/**
+ * Libellé d'onglet avec son compteur, façon Mihon. Le compteur de l'onglet actif se
+ * teinte d'accent : la sélection se lit alors sur deux signaux (soulignement + pastille)
+ * plutôt qu'un seul, ce qui reste net même en coup d'œil rapide.
+ */
+@Composable
+private fun TabLabel(label: String, count: Int, selected: Boolean) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(text = label, maxLines = 1, style = MaterialTheme.typography.labelLarge)
+        Text(
+            text = label,
+            maxLines = 1,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+        )
         if (count > 0) {
             Spacer(Modifier.width(6.dp))
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(6.dp),
+                color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                else MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(7.dp),
             ) {
                 Text(
                     text = "$count",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                    color = if (selected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
         }
@@ -459,10 +629,18 @@ private fun QuickActionsDialog(
 }
 
 /** Message d'état vide adapté à l'onglet courant (un texte générique n'aiderait pas). */
-private fun emptyMessage(isShelf: Boolean, libraryEmpty: Boolean, filterLabel: String): String = when {
-    isShelf -> "Cette étagère est vide.\nOuvre un roman puis appuie sur ♥ pour l'y ranger."
-    libraryEmpty -> "Ta bibliothèque est vide.\nAjoute des romans depuis l'onglet Explorer !"
-    else -> "Aucun roman en « $filterLabel ».\nAppuie longuement sur une couverture pour la classer."
+private fun emptyMessage(isShelf: Boolean, libraryEmpty: Boolean, statusFilter: String?): String {
+    // Le filtre passe avant tout le reste : la page n'est pas vide, elle est filtrée, et
+    // proposer « ajoute des romans » à quelqu'un qui en a serait trompeur.
+    val status = ReadingStatus.fromId(statusFilter)
+    return when {
+        status != null ->
+            "Aucun roman en « ${status.label} » ici.\n" +
+                "Appuie longuement sur une couverture pour changer son statut."
+        isShelf -> "Cette étagère est vide.\nOuvre un roman puis appuie sur ♥ pour l'y ranger."
+        libraryEmpty -> "Ta bibliothèque est vide.\nAjoute des romans depuis l'onglet Explorer !"
+        else -> "Aucun roman ici pour le moment."
+    }
 }
 
 @Composable

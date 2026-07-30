@@ -21,3 +21,11 @@ data class ChapterDetailDto(
     val content: String = "",
     val createdAt: String? = null,
 )
+
+// Le titre est facultatif côté back (et parfois vide). Le repli est centralisé ici plutôt
+// que réécrit sur chaque écran, où il finissait par diverger d'un endroit à l'autre.
+val ChapterDto.displayTitle: String
+    get() = title?.takeIf { it.isNotBlank() } ?: "Chapitre $chapterNumber"
+
+val ChapterDetailDto.displayTitle: String
+    get() = title?.takeIf { it.isNotBlank() } ?: "Chapitre $chapterNumber"

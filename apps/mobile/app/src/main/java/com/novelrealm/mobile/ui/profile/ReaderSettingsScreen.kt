@@ -132,6 +132,17 @@ fun ReaderSettingsScreen(
                     },
                 )
                 SettingsDivider()
+                SliderSetting(
+                    label = "Marges latérales",
+                    valueLabel = if (reader.margin == 0) "Aucune" else "${reader.margin} dp",
+                    value = reader.margin.toFloat(),
+                    range = ReaderPrefs.MARGIN_RANGE,
+                    steps = 19,
+                    onValueChange = { v ->
+                        store.updateReader { it.copy(margin = v.roundToInt()) }
+                    },
+                )
+                SettingsDivider()
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
                         text = "Police",
@@ -257,7 +268,9 @@ private fun ReaderPreview(prefs: ReaderPrefs) {
                 RoundedCornerShape(20.dp),
             ),
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
+        // L'aperçu applique aussi la marge : c'est justement le réglage qu'on ne peut pas
+        // juger sans le voir.
+        Column(modifier = Modifier.padding(horizontal = style.horizontalPadding, vertical = 20.dp)) {
             Text(
                 text = "Chapitre 12",
                 style = MaterialTheme.typography.labelMedium,

@@ -24,6 +24,8 @@ data class ReaderStyle(
     val foreground: Color,
     val textStyle: TextStyle,
     val paragraphSpacing: Dp,
+    /** Marge latérale du texte ; 0 dp = pleine largeur d'écran. */
+    val horizontalPadding: Dp,
 )
 
 /** Couleurs d'ambiance du lecteur. « Clair » et « Sombre » suivent le thème de l'app. */
@@ -65,5 +67,6 @@ fun rememberReaderStyle(prefs: ReaderPrefs): ReaderStyle {
             letterSpacing = 0.sp,
         ),
         paragraphSpacing = paragraphSpacing,
+        horizontalPadding = prefs.margin.dp,
     )
 }

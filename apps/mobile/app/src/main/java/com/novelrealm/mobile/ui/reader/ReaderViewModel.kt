@@ -23,9 +23,16 @@ data class ReaderUiState(
     val initialPercent: Int = 0,        // position de reprise à restaurer (0 si déjà lu)
     val isFavorite: Boolean = false,
     val isRead: Boolean = false,
-    val hasPrevious: Boolean = false,
-    val hasNext: Boolean = false,
-)
+    /** Chapitres voisins — gardés entiers (et pas juste un booléen) pour pouvoir les nommer. */
+    val previousChapter: ChapterDto? = null,
+    val nextChapter: ChapterDto? = null,
+) {
+    val hasPrevious: Boolean get() = previousChapter != null
+    val hasNext: Boolean get() = nextChapter != null
+
+    /** Rang du chapitre courant dans le roman, 1-based ; 0 si inconnu. */
+    val position: Int get() = chapters.indexOfFirst { it.id == chapter?.id } + 1
+}
 
 // Lecteur (#35) : charge le contenu du chapitre, restaure la position de reprise,
 // sauvegarde la progression en continu et marque le chapitre lu en fin de lecture.
@@ -84,8 +91,11 @@ class ReaderViewModel(
                             initialPercent = if (progress?.read == true) 0 else (progress?.scrollPosition ?: 0),
                             isFavorite = chapterId in favoriteIds,
                             isRead = progress?.read == true,
-                            hasPrevious = index > 0,
-                            hasNext = index >= 0 && index < chapters.lastIndex,
+                            // `index` vaut -1 si la liste des chapitres n'a pas pu être
+                            // chargée : les deux voisins sont alors nuls, et la navigation
+                            // par flèches comme par balayage se désactive d'elle-même.
+                            previousChapter = if (index > 0) chapters[index - 1] else null,
+                            nextChapter = if (index >= 0) chapters.getOrNull(index + 1) else null,
                         )
                     }
                 }
@@ -97,17 +107,11 @@ class ReaderViewModel(
     }
 
     fun openPrevious() {
-        val chapters = _state.value.chapters
-        val current = _state.value.chapter ?: return
-        val index = chapters.indexOfFirst { it.id == current.id }
-        if (index > 0) loadChapter(chapters[index - 1].id)
+        _state.value.previousChapter?.let { loadChapter(it.id) }
     }
 
     fun openNext() {
-        val chapters = _state.value.chapters
-        val current = _state.value.chapter ?: return
-        val index = chapters.indexOfFirst { it.id == current.id }
-        if (index >= 0 && index < chapters.lastIndex) loadChapter(chapters[index + 1].id)
+        _state.value.nextChapter?.let { loadChapter(it.id) }
     }
 
     // Appelé (débouncé) par l'écran quand le pourcentage de lecture change.

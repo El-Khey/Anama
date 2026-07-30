@@ -145,6 +145,7 @@ class PreferencesStore(
         // Clés propres au mobile — ignorées par le web, qui ne lit que les siennes.
         previousReader["keepScreenOn"] = JsonPrimitive(current.reader.keepScreenOn)
         previousReader["fullscreen"] = JsonPrimitive(current.reader.fullscreen)
+        previousReader["margin"] = JsonPrimitive(current.reader.margin)
 
         val root = lastRemote.toMutableMap()
         root["accent"] = JsonPrimitive(current.accent.id)
@@ -169,6 +170,7 @@ class PreferencesStore(
                 theme = ReaderTheme.fromId(prefs.getString(KEY_READER_THEME, null)),
                 keepScreenOn = prefs.getBoolean(KEY_KEEP_SCREEN_ON, d.keepScreenOn),
                 fullscreen = prefs.getBoolean(KEY_FULLSCREEN, d.fullscreen),
+                margin = prefs.getInt(KEY_MARGIN, d.margin),
             ),
         )
     }
@@ -185,6 +187,7 @@ class PreferencesStore(
             .putString(KEY_READER_THEME, value.reader.theme.id)
             .putBoolean(KEY_KEEP_SCREEN_ON, value.reader.keepScreenOn)
             .putBoolean(KEY_FULLSCREEN, value.reader.fullscreen)
+            .putInt(KEY_MARGIN, value.reader.margin)
             .apply()
     }
 
@@ -202,6 +205,7 @@ class PreferencesStore(
         const val KEY_READER_THEME = "reader_theme"
         const val KEY_KEEP_SCREEN_ON = "reader_keep_screen_on"
         const val KEY_FULLSCREEN = "reader_fullscreen"
+        const val KEY_MARGIN = "reader_margin"
     }
 }
 
@@ -229,4 +233,5 @@ private fun JsonObject.toReaderPrefs(current: ReaderPrefs): ReaderPrefs = Reader
     theme = str("themeId")?.let { ReaderTheme.fromId(it) } ?: current.theme,
     keepScreenOn = bool("keepScreenOn") ?: current.keepScreenOn,
     fullscreen = bool("fullscreen") ?: current.fullscreen,
+    margin = int("margin")?.coerceIn(0, 40) ?: current.margin,
 )
