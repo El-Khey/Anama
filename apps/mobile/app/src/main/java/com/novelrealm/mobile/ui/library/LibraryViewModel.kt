@@ -20,8 +20,14 @@ data class LibraryUiState(
     val entries: List<LibraryEntryDto> = emptyList(),
     // novelId → (nombre de chapitres non lus)
     val unreadByNovel: Map<Long, Long> = emptyMap(),
+    // novelId → part de chapitres lus (0f..1f), pour la barre de progression des cartes
+    val readFractionByNovel: Map<Long, Float> = emptyMap(),
     val categories: List<CategoryDto> = emptyList(),
-)
+) {
+    /** Statut de lecture d'un roman suivi, ou null s'il n'est pas dans la bibliothèque. */
+    fun statusOf(novelId: Long): String? =
+        entries.firstOrNull { it.novel.id == novelId }?.status
+}
 
 // Bibliothèque (#35) : romans suivis (avec badge non-lus) + étagères personnelles,
 // présentés en onglets façon Mihon (catégories = onglets).
@@ -47,12 +53,16 @@ class LibraryViewModel : ViewModel() {
                     val unread = summary.associate { s ->
                         s.novelId to (s.totalChapters - s.readChapters).coerceAtLeast(0)
                     }
+                    val fractions = summary
+                        .filter { it.totalChapters > 0 }
+                        .associate { s -> s.novelId to (s.readChapters.toFloat() / s.totalChapters) }
                     val categories = (categoriesDef.await() as? ApiResult.Success)?.data.orEmpty()
                     _state.update {
                         it.copy(
                             isLoading = false,
                             entries = library.data,
                             unreadByNovel = unread,
+                            readFractionByNovel = fractions,
                             categories = categories,
                         )
                     }
@@ -61,6 +71,33 @@ class LibraryViewModel : ViewModel() {
                     it.copy(isLoading = false, error = library.userMessage())
                 }
             }
+        }
+    }
+
+    // ── Statut de lecture (accessible directement depuis la grille, appui long) ──
+
+    /** Déplace un roman vers un autre statut (À lire / En cours / En pause / Terminé). */
+    fun setStatus(novelId: Long, status: String) {
+        // Optimiste : la grille se réorganise tout de suite, le serveur suit.
+        _state.update { state ->
+            state.copy(
+                entries = state.entries.map {
+                    if (it.novel.id == novelId) it.copy(status = status) else it
+                },
+            )
+        }
+        viewModelScope.launch {
+            if (libraryRepo.updateStatus(novelId, status) is ApiResult.Error) refresh()
+        }
+    }
+
+    /** Retire un roman de la bibliothèque (il reste consultable depuis Explorer). */
+    fun removeFromLibrary(novelId: Long) {
+        _state.update { state ->
+            state.copy(entries = state.entries.filterNot { it.novel.id == novelId })
+        }
+        viewModelScope.launch {
+            if (libraryRepo.remove(novelId) is ApiResult.Error) refresh()
         }
     }
 

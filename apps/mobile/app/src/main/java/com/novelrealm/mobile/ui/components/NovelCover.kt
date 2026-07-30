@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
@@ -24,6 +25,7 @@ fun NovelCover(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     ratio: Float = COVER_RATIO_BOOK,
+    shape: Shape = RoundedCornerShape(12.dp),
 ) {
     val placeholder = ColorPainter(Color(0x1F888888))
     AsyncImage(
@@ -35,6 +37,6 @@ fun NovelCover(
         fallback = placeholder,
         modifier = modifier
             .aspectRatio(ratio)
-            .clip(RoundedCornerShape(6.dp)),
+            .clip(shape),
     )
 }

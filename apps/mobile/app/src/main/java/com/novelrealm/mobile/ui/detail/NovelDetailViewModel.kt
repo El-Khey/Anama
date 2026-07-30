@@ -27,7 +27,27 @@ data class NovelDetailUiState(
     val libraryStatus: String? = null,          // null = pas dans la bibliothèque
     val reviewSummary: ReviewSummaryDto? = null,
     val categories: List<CategoryDto> = emptyList(),
-)
+    /** Chapitres cochés en mode sélection multiple (vide = mode inactif). */
+    val selectedChapterIds: Set<Long> = emptySet(),
+    /** Ordre d'affichage des chapitres ; false = du plus récent au plus ancien. */
+    val ascending: Boolean = true,
+) {
+    val isSelecting: Boolean get() = selectedChapterIds.isNotEmpty()
+
+    /** Chapitres dans l'ordre d'affichage choisi. */
+    val orderedChapters: List<ChapterDto>
+        get() = if (ascending) chapters else chapters.asReversed()
+
+    val readCount: Int get() = chapters.count { progress[it.id]?.read == true }
+
+    /** Part de chapitres lus (0f..1f) ; 0 si le roman n'a aucun chapitre. */
+    val readFraction: Float
+        get() = if (chapters.isEmpty()) 0f else readCount.toFloat() / chapters.size
+
+    /** Premier chapitre non lu, dans l'ordre naturel — cible du bouton Reprendre. */
+    val resumeChapter: ChapterDto?
+        get() = chapters.firstOrNull { progress[it.id]?.read != true }
+}
 
 // Écran détail d'un roman (#35) : agrège 7 domaines du back (roman, chapitres, progression,
 // signets, bibliothèque, avis, étagères). Les échecs secondaires sont silencieux — seul
@@ -109,23 +129,24 @@ class NovelDetailViewModel(private val novelId: Long) : ViewModel() {
 
     // ── Bibliothèque ──
 
-    fun addToLibrary() {
-        viewModelScope.launch {
-            when (val result = libraryRepo.add(novelId)) {
-                is ApiResult.Success -> _state.update { it.copy(libraryStatus = result.data.status) }
-                is ApiResult.Error -> if (result.code == 409) {
-                    // Déjà dans la bibliothèque (état local désynchronisé) → resynchronise.
-                    _state.update { it.copy(libraryStatus = "PLAN_TO_READ") }
-                }
-            }
-        }
-    }
-
+    /**
+     * Choisit le statut de lecture. Si le roman n'est pas encore suivi, il est **ajouté**
+     * directement avec ce statut : choisir « En cours » suffit, sans devoir d'abord
+     * appuyer sur le cœur.
+     */
     fun setLibraryStatus(status: String) {
+        val wasInLibrary = _state.value.libraryStatus != null
+        _state.update { it.copy(libraryStatus = status) }   // optimiste
         viewModelScope.launch {
-            when (val result = libraryRepo.updateStatus(novelId, status)) {
-                is ApiResult.Success -> _state.update { it.copy(libraryStatus = result.data.status) }
-                is ApiResult.Error -> Unit
+            val result = if (wasInLibrary) {
+                libraryRepo.updateStatus(novelId, status)
+            } else {
+                libraryRepo.add(novelId, status)
+            }
+            if (result is ApiResult.Error) {
+                // 409 = déjà présent : on rattrape en mettant simplement à jour le statut.
+                if (result.code == 409) libraryRepo.updateStatus(novelId, status)
+                else _state.update { it.copy(libraryStatus = if (wasInLibrary) it.libraryStatus else null) }
             }
         }
     }
@@ -150,44 +171,128 @@ class NovelDetailViewModel(private val novelId: Long) : ViewModel() {
         viewModelScope.launch { progressRepo.markRead(chapterId, read) }
     }
 
-    fun markAllRead() {
-        val ids = _state.value.chapters.map { it.id }
-        if (ids.isEmpty()) return
+    /** Marque tous les chapitres du roman comme lus (ou non lus). */
+    fun markAllRead(read: Boolean = true) {
+        markChapters(_state.value.chapters.map { it.id }, read)
+    }
+
+    /**
+     * Marque comme lus tous les chapitres jusqu'à celui-ci **inclus**. C'est l'action la
+     * plus utile quand on reprend une série commencée ailleurs : sans elle, il faudrait
+     * cocher les chapitres un par un.
+     */
+    fun markUpToRead(chapterId: Long) {
+        val chapters = _state.value.chapters
+        val target = chapters.firstOrNull { it.id == chapterId } ?: return
+        val ids = chapters.filter { it.chapterNumber <= target.chapterNumber }.map { it.id }
+        markChapters(ids, read = true)
+    }
+
+    /** Marque une sélection de chapitres comme lus / non lus (un seul appel réseau). */
+    fun markChapters(chapterIds: List<Long>, read: Boolean) {
+        if (chapterIds.isEmpty()) return
+        // Optimiste : l'UI répond immédiatement, le serveur suit.
         _state.update { state ->
             val updated = state.progress.toMutableMap()
-            ids.forEach { id ->
+            chapterIds.forEach { id ->
                 val current = updated[id] ?: ChapterProgressDto(chapterId = id)
-                updated[id] = current.copy(read = true)
+                updated[id] = current.copy(read = read)
             }
             state.copy(progress = updated)
         }
-        viewModelScope.launch { progressRepo.markBatch(ids, read = true) }
+        viewModelScope.launch {
+            if (progressRepo.markBatch(chapterIds, read) is ApiResult.Error) refreshProgress()
+        }
+    }
+
+    // ── Signets de chapitres ──
+
+    /** Ajoute ou retire le signet d'un chapitre. */
+    fun toggleChapterFavorite(chapterId: Long) {
+        val wasFavorite = chapterId in _state.value.favoriteChapterIds
+        _state.update { state ->
+            state.copy(
+                favoriteChapterIds = if (wasFavorite) state.favoriteChapterIds - chapterId
+                else state.favoriteChapterIds + chapterId,
+            )
+        }
+        viewModelScope.launch {
+            val result = if (wasFavorite) favoriteRepo.remove(chapterId) else favoriteRepo.add(chapterId)
+            if (result is ApiResult.Error) refreshProgress()   // resynchronise sur échec
+        }
+    }
+
+    /**
+     * Applique le même signet à toute une sélection. L'API ne traite qu'un chapitre à la
+     * fois : les appels sont donc lancés en parallèle plutôt qu'en file d'attente.
+     */
+    fun setChaptersFavorite(chapterIds: List<Long>, favorite: Boolean) {
+        if (chapterIds.isEmpty()) return
+        _state.update { state ->
+            state.copy(
+                favoriteChapterIds = if (favorite) state.favoriteChapterIds + chapterIds
+                else state.favoriteChapterIds - chapterIds.toSet(),
+            )
+        }
+        viewModelScope.launch {
+            chapterIds.map { id ->
+                async { if (favorite) favoriteRepo.add(id) else favoriteRepo.remove(id) }
+            }.forEach { it.await() }
+            refreshProgress()
+        }
+    }
+
+    // ── Sélection multiple ──
+
+    fun toggleSelection(chapterId: Long) {
+        _state.update { state ->
+            state.copy(
+                selectedChapterIds = if (chapterId in state.selectedChapterIds) {
+                    state.selectedChapterIds - chapterId
+                } else {
+                    state.selectedChapterIds + chapterId
+                },
+            )
+        }
+    }
+
+    fun selectAll() {
+        _state.update { it.copy(selectedChapterIds = it.chapters.map { c -> c.id }.toSet()) }
+    }
+
+    fun clearSelection() {
+        _state.update { it.copy(selectedChapterIds = emptySet()) }
+    }
+
+    fun toggleSortOrder() {
+        _state.update { it.copy(ascending = !it.ascending) }
     }
 
     // ── Étagères ──
 
-    fun toggleShelf(category: CategoryDto) {
-        val inShelf = category.novels.any { it.id == novelId }
+    /**
+     * Applique **en une fois** la sélection du dialogue « Définir la catégorie » : seules
+     * les cases réellement changées déclenchent un appel réseau. Rien n'est envoyé tant
+     * que l'utilisateur n'a pas validé — il peut donc cocher/décocher librement, puis
+     * annuler sans conséquence.
+     */
+    fun applyShelves(selectedIds: Set<Long>) {
+        val categories = _state.value.categories
+        val toAdd = categories.filter { c ->
+            c.id in selectedIds && c.novels.none { it.id == novelId }
+        }
+        val toRemove = categories.filter { c ->
+            c.id !in selectedIds && c.novels.any { it.id == novelId }
+        }
+        if (toAdd.isEmpty() && toRemove.isEmpty()) return
+
         viewModelScope.launch {
-            if (inShelf) {
-                when (categoryRepo.removeNovel(category.id, novelId)) {
-                    is ApiResult.Success -> _state.update { state ->
-                        state.copy(
-                            categories = state.categories.map { c ->
-                                if (c.id == category.id) c.copy(novels = c.novels.filterNot { it.id == novelId })
-                                else c
-                            },
-                        )
-                    }
-                    is ApiResult.Error -> Unit
-                }
-            } else {
-                when (val result = categoryRepo.addNovel(category.id, novelId)) {
-                    is ApiResult.Success -> _state.update { state ->
-                        state.copy(categories = state.categories.map { c -> if (c.id == category.id) result.data else c })
-                    }
-                    is ApiResult.Error -> Unit
-                }
+            toAdd.map { async { categoryRepo.addNovel(it.id, novelId) } }.forEach { it.await() }
+            toRemove.map { async { categoryRepo.removeNovel(it.id, novelId) } }.forEach { it.await() }
+            // Rechargement complet : plus fiable que de recoller l'état à la main après
+            // plusieurs ajouts/retraits en parallèle.
+            (categoryRepo.getCategories() as? ApiResult.Success)?.let { result ->
+                _state.update { it.copy(categories = result.data) }
             }
         }
     }
