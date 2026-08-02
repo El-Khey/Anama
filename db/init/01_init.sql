@@ -133,3 +133,40 @@ CREATE TABLE IF NOT EXISTS review (
 -- Liste des avis d'un roman, les plus récents d'abord (page « fiche »).
 CREATE INDEX IF NOT EXISTS idx_review_novel_created
     ON review (novel_id, created_at DESC);
+
+-- ─────────────────── Commentaires de fin de chapitre ────────────────
+-- Messages laissés sous un chapitre (#41). Contrairement à `review`, un
+-- lecteur peut en écrire autant qu'il veut sur le même chapitre.
+--
+-- parent_id : NULL = le message ouvre un fil ; sinon il pointe TOUJOURS
+-- vers un message racine. Le service refuse d'aller plus profond — au-delà
+-- d'un niveau, l'indentation devient illisible sur un téléphone.
+--
+-- deleted_at : suppression DOUCE. Effacer la ligne détacherait les réponses
+-- accrochées dessus. Un message supprimé sans réponse sort simplement de la
+-- liste ; s'il en porte encore, il y reste en « pierre tombale ».
+CREATE TABLE IF NOT EXISTS chapter_comment (
+    id          BIGSERIAL PRIMARY KEY,
+    chapter_id  BIGINT NOT NULL REFERENCES chapters(id)     ON DELETE CASCADE,
+    user_id     BIGINT NOT NULL REFERENCES users(id)        ON DELETE CASCADE,
+    parent_id   BIGINT          REFERENCES chapter_comment(id) ON DELETE CASCADE,
+    body        TEXT NOT NULL,
+    -- Réservée à l'étape « anti-spoil » de #41 : la colonne est posée
+    -- maintenant pour s'épargner une migration, l'API ne l'expose pas encore.
+    is_spoiler  BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at  TIMESTAMP NOT NULL,
+    updated_at  TIMESTAMP NOT NULL,
+    deleted_at  TIMESTAMP                                   -- NULL = message vivant
+);
+
+-- Fils d'un chapitre, les plus récents d'abord (liste du lecteur).
+CREATE INDEX IF NOT EXISTS idx_chapter_comment_chapter_created
+    ON chapter_comment (chapter_id, created_at DESC);
+
+-- Réponses d'un fil : chargées en UN appel pour toute une page de fils.
+CREATE INDEX IF NOT EXISTS idx_chapter_comment_parent
+    ON chapter_comment (parent_id);
+
+-- Garde-fou anti-rafale : « cet utilisateur a-t-il écrit ces 15 dernières secondes ? »
+CREATE INDEX IF NOT EXISTS idx_chapter_comment_user_created
+    ON chapter_comment (user_id, created_at DESC);

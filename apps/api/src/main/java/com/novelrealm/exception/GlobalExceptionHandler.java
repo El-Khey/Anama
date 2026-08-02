@@ -123,6 +123,32 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
     }
 
+    @ExceptionHandler(ChapterCommentNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleChapterCommentNotFound(ChapterCommentNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(), // 404
+                ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    /** Le message existe, mais il n'est pas de cet utilisateur. */
+    @ExceptionHandler(CommentNotOwnedException.class)
+    public ResponseEntity<ErrorResponse> handleCommentNotOwned(CommentNotOwnedException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.FORBIDDEN.value(), // 403
+                ex.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
+    }
+
+    /** Messages enchaînés trop vite (garde-fou anti-rafale). */
+    @ExceptionHandler(CommentRateLimitedException.class)
+    public ResponseEntity<ErrorResponse> handleCommentRateLimited(CommentRateLimitedException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.TOO_MANY_REQUESTS.value(), // 429
+                ex.getMessage());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(error);
+    }
+
     @ExceptionHandler(ChapterAlreadyFavoritedException.class)
     public ResponseEntity<ErrorResponse> handleChapterAlreadyFavorited(ChapterAlreadyFavoritedException ex) {
         ErrorResponse error = new ErrorResponse(
