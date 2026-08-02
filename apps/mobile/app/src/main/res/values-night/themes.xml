@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Variante sombre du fond de fenêtre (cf. commentaire dans values/themes.xml). -->
+    <style name="Theme.NovelRealm" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/novel_background_dark</item>
+    </style>
+</resources>

@@ -36,10 +36,14 @@ fun LoginScreen(
     onSubmit: (email: String, password: String) -> Unit,
     onSwitchToRegister: () -> Unit,
     modifier: Modifier = Modifier,
+    sessionExpired: Boolean = false,
+    onExpiryShown: () -> Unit = {},
 ) {
     var email by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
+    // Le message d'expiration disparaît dès que l'utilisateur retape ses identifiants.
+    val showExpiredNotice = sessionExpired && form.error == null
     val canSubmit = email.isNotBlank() && password.isNotBlank() && !form.isSubmitting
 
     Column(
@@ -58,6 +62,11 @@ fun LoginScreen(
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
         )
         Spacer(Modifier.height(32.dp))
+
+        if (showExpiredNotice) {
+            InfoBanner("Ta session a expiré. Reconnecte-toi pour continuer.")
+            Spacer(Modifier.height(16.dp))
+        }
 
         AuthTextField(
             value = email,
@@ -84,13 +93,16 @@ fun LoginScreen(
         Spacer(Modifier.height(24.dp))
         SubmitButton(
             text = "Se connecter",
-            onClick = { onSubmit(email, password) },
+            onClick = { onExpiryShown(); onSubmit(email, password) },
             enabled = canSubmit,
             loading = form.isSubmitting,
         )
 
         Spacer(Modifier.height(8.dp))
-        TextButton(onClick = onSwitchToRegister, enabled = !form.isSubmitting) {
+        TextButton(
+            onClick = { onExpiryShown(); onSwitchToRegister() },
+            enabled = !form.isSubmitting,
+        ) {
             Text("Pas encore de compte ? S'inscrire")
         }
     }

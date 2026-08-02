@@ -65,4 +65,31 @@ public interface NovelRepository extends JpaRepository<Novel, Long> {
             @Param("status") NovelStatus status,
             @Param("genreId") Long genreId,
             Pageable pageable);
+
+    /**
+     * Même recherche/filtre, mais triée par NOTE MOYENNE décroissante.
+     *
+     * <p>Deux précautions dans le tri :
+     * <ul>
+     *   <li>{@code COALESCE(..., 0)} — sans lui, les romans sans aucun avis
+     *       remonteraient en TÊTE sur PostgreSQL, où {@code NULL} passe avant
+     *       en tri décroissant.</li>
+     *   <li>le nombre d'avis départage les ex æquo : 5,0 sur trente avis passe
+     *       devant 5,0 sur un seul, qui ne veut pas dire grand-chose.</li>
+     * </ul>
+     * Le tri est dans la requête → le {@link Pageable} ne porte que la pagination.
+     */
+    @Query("""
+            SELECT n FROM Novel n
+            WHERE (:pattern IS NULL OR LOWER(n.title) LIKE :pattern OR LOWER(n.author) LIKE :pattern)
+              AND (:status IS NULL OR n.status = :status)
+              AND (:genreId IS NULL OR EXISTS (SELECT 1 FROM n.genres g WHERE g.id = :genreId))
+            ORDER BY COALESCE((SELECT AVG(r.rating) FROM Review r WHERE r.novel = n), 0) DESC,
+                     (SELECT COUNT(r2) FROM Review r2 WHERE r2.novel = n) DESC,
+                     n.createdAt DESC
+            """)
+    Page<Novel> searchByRating(@Param("pattern") String pattern,
+            @Param("status") NovelStatus status,
+            @Param("genreId") Long genreId,
+            Pageable pageable);
 }

@@ -94,6 +94,23 @@ fun ErrorBanner(message: String, modifier: Modifier = Modifier) {
     }
 }
 
+/** Bannière informative (ton neutre/primaire), ex. « ta session a expiré ». */
+@Composable
+fun InfoBanner(message: String, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        )
+    }
+}
+
 /** Bouton principal pleine largeur ; montre un spinner quand `loading`. */
 @Composable
 fun SubmitButton(

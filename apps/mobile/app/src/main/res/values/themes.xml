@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.NovelRealm" parent="android:Theme.Material.Light.NoActionBar" />
+    <!--
+      Thème de la FENÊTRE Android — ce n'est PAS le thème de l'interface : les couleurs
+      de l'app sont gérées par Compose (NovelRealmTheme). Son seul rôle utile est le fond
+      affiché pendant le lancement, avant que Compose n'ait dessiné quoi que ce soit.
+      On le fait suivre le mode sombre du système (voir values-night) pour éviter un
+      flash blanc au démarrage.
+    -->
+    <style name="Theme.NovelRealm" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/novel_background_light</item>
+    </style>
 </resources>

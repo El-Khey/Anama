@@ -38,6 +38,13 @@ suspend fun <T> safeApiCall(block: suspend () -> T): ApiResult<T> =
         ApiResult.Error(null, e.message ?: "Erreur inconnue")
     }
 
+// Message d'erreur présentable à l'utilisateur (mutualisé entre les ViewModels).
+fun ApiResult.Error.userMessage(): String = when (code) {
+    null -> "Impossible de joindre le serveur. Vérifie ta connexion."
+    401 -> "Session expirée — reconnecte-toi."
+    else -> message.ifBlank { "Une erreur est survenue ($code)." }
+}
+
 /** Extrait le champ `message` du corps d'erreur JSON, ou null si absent/illisible. */
 private fun serverMessage(e: HttpException): String? =
     runCatching {

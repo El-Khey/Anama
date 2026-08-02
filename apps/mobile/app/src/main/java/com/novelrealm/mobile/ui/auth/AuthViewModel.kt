@@ -17,20 +17,24 @@ data class AuthFormState(
 
 /**
  * Cerveau de l'authentification (#33). Instancié par `viewModel()` → **partagé** par
- * la porte d'entrée (`AppRoot`) et les écrans login/register (même portée Activity),
- * donc une seule source de vérité pour l'état « connecté / déconnecté ».
+ * la porte d'entrée (`AppRoot`) et les écrans login/register (même portée Activity).
  *
- * Dépendances via [ServiceLocator] (DI manuelle) → constructeur sans argument.
+ * L'état « connecté / déconnecté » n'est **pas** détenu ici : il est délégué au
+ * [com.novelrealm.mobile.data.local.SessionManager] partagé. Ainsi, une expiration de
+ * token détectée par la couche réseau (401 → auto-déconnexion) bascule le même flux et
+ * renvoie l'utilisateur au login, même s'il n'était pas sur un écran d'auth (#35).
  */
 class AuthViewModel : ViewModel() {
 
     private val repository = ServiceLocator.authRepository
+    private val session = ServiceLocator.sessionManager
 
-    private val _isAuthenticated = MutableStateFlow(repository.isLoggedIn())
-    val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
+    /** Observés directement depuis le [SessionManager] : une seule source de vérité. */
+    val isAuthenticated: StateFlow<Boolean> = session.isAuthenticated
+    val pseudo: StateFlow<String?> = session.pseudo
 
-    private val _pseudo = MutableStateFlow(repository.currentPseudo())
-    val pseudo: StateFlow<String?> = _pseudo.asStateFlow()
+    /** `true` quand la dernière déconnexion vient d'une expiration (401), pas d'un logout. */
+    val sessionExpired: StateFlow<Boolean> = session.sessionExpired
 
     private val _form = MutableStateFlow(AuthFormState())
     val form: StateFlow<AuthFormState> = _form.asStateFlow()
@@ -44,8 +48,6 @@ class AuthViewModel : ViewModel() {
     fun logout() {
         viewModelScope.launch {
             repository.logout()
-            _isAuthenticated.value = false
-            _pseudo.value = null
             _form.value = AuthFormState()
         }
     }
@@ -57,17 +59,16 @@ class AuthViewModel : ViewModel() {
         }
     }
 
+    /** Accuse réception du message « session expirée » une fois affiché. */
+    fun acknowledgeExpiry() = session.acknowledgeExpiry()
+
     /** Exécute une action d'auth en gérant l'état (chargement → succès/erreur). */
     private fun submit(action: suspend () -> ApiResult<Unit>) {
         if (_form.value.isSubmitting) return
         _form.value = AuthFormState(isSubmitting = true)
         viewModelScope.launch {
             _form.value = when (val result = action()) {
-                is ApiResult.Success -> {
-                    _pseudo.value = repository.currentPseudo()
-                    _isAuthenticated.value = true
-                    AuthFormState()
-                }
+                is ApiResult.Success -> AuthFormState()   // la session est ouverte par le repository
                 is ApiResult.Error -> AuthFormState(error = friendlyMessage(result))
             }
         }

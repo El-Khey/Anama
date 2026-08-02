@@ -1,6 +1,6 @@
 package com.novelrealm.mobile.data.repository
 
-import com.novelrealm.mobile.data.local.TokenStorage
+import com.novelrealm.mobile.data.local.SessionManager
 import com.novelrealm.mobile.data.remote.ApiResult
 import com.novelrealm.mobile.data.remote.api.AuthApi
 import com.novelrealm.mobile.data.remote.dto.LoginRequestDto
@@ -8,28 +8,25 @@ import com.novelrealm.mobile.data.remote.dto.RegisterRequestDto
 import com.novelrealm.mobile.data.remote.safeApiCall
 
 /**
- * Point d'entrée unique pour l'authentification (#33). Cache la mécanique réseau +
- * stockage du token au reste de l'app : les écrans/ViewModels ne manipulent que des
- * [ApiResult].
+ * Point d'entrée unique pour l'authentification (#33). Cache la mécanique réseau au
+ * reste de l'app : les écrans/ViewModels ne manipulent que des [ApiResult].
+ *
+ * L'état de session (token + « connecté ») est délégué au [SessionManager] partagé,
+ * pour qu'une expiration détectée par la couche réseau (401) et une connexion/logout
+ * volontaire modifient **le même** état observable.
  */
 class AuthRepository(
     private val authApi: AuthApi,
-    private val tokenStorage: TokenStorage,
+    private val session: SessionManager,
 ) {
 
-    /** Vrai si un token est mémorisé (session ouverte au lancement de l'app). */
-    fun isLoggedIn(): Boolean = tokenStorage.hasToken()
-
-    /** Pseudo mémorisé lors du dernier login (pour l'affichage). */
-    fun currentPseudo(): String? = tokenStorage.getPseudo()
-
-    /** Connexion : récupère le JWT et le mémorise. */
+    /** Connexion : récupère le JWT et ouvre la session. */
     suspend fun login(email: String, password: String): ApiResult<Unit> =
         when (val result = safeApiCall {
             authApi.login(LoginRequestDto(email = email.trim(), password = password))
         }) {
             is ApiResult.Success -> {
-                tokenStorage.saveSession(result.data.token, result.data.pseudo)
+                session.onAuthenticated(result.data.token, result.data.pseudo)
                 ApiResult.Success(Unit)
             }
             is ApiResult.Error -> result
@@ -51,11 +48,12 @@ class AuthRepository(
     }
 
     /**
-     * Déconnexion : on prévient le back (best-effort, il efface le cookie web) puis
-     * on jette le token local — le résultat de l'appel réseau n'est pas bloquant.
+     * Déconnexion volontaire : on prévient le back (best-effort, il efface le cookie
+     * web) puis on jette le token local — le résultat de l'appel réseau n'est pas
+     * bloquant (même hors ligne, la session locale doit se fermer).
      */
     suspend fun logout() {
         safeApiCall { authApi.logout() }
-        tokenStorage.clear()
+        session.onLoggedOut()
     }
 }

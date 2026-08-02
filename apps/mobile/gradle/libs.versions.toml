@@ -18,6 +18,8 @@ kotlinxCoroutines = "1.9.0"
 securityCrypto = "1.1.0-alpha06"
 # ── #34 : navigation ──
 navigationCompose = "2.8.4"
+# ── #35 : chargement d'images (couvertures) ──
+coil = "2.7.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -47,6 +49,8 @@ androidx-security-crypto = { group = "androidx.security", name = "security-crypt
 # ── #34 : navigation + icônes ──
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
+# ── #35 : images ──
+coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
