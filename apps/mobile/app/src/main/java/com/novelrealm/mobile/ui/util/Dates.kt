@@ -1,5 +1,6 @@
 package com.novelrealm.mobile.ui.util
 
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.OffsetDateTime
@@ -38,4 +39,24 @@ fun timeLabel(iso: String?): String {
 fun dateLabel(iso: String?): String {
     val instant = parseInstant(iso) ?: return ""
     return instant.atZone(ZoneId.systemDefault()).toLocalDate().format(dayFormatter)
+}
+
+/**
+ * « à l'instant » / « il y a 12 min » / « il y a 3 h » / « il y a 4 j », puis la date
+ * complète au-delà d'une semaine — dans un fil de discussion, l'ancienneté relative
+ * dit bien plus que la date exacte.
+ *
+ * Une horloge locale en avance sur celle du serveur donnerait un écart négatif : il
+ * retombe sur « à l'instant » plutôt que sur un « il y a -3 min ».
+ */
+fun relativeTimeLabel(iso: String?): String {
+    val instant = parseInstant(iso) ?: return ""
+    val minutes = Duration.between(instant, Instant.now()).toMinutes()
+    return when {
+        minutes < 1 -> "à l'instant"
+        minutes < 60 -> "il y a $minutes min"
+        minutes < 24 * 60 -> "il y a ${minutes / 60} h"
+        minutes < 7 * 24 * 60 -> "il y a ${minutes / (24 * 60)} j"
+        else -> dateLabel(iso)
+    }
 }

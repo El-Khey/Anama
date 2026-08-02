@@ -27,6 +27,11 @@ data class NovelDetailUiState(
     val libraryStatus: String? = null,          // null = pas dans la bibliothèque
     val reviewSummary: ReviewSummaryDto? = null,
     val categories: List<CategoryDto> = emptyList(),
+    /**
+     * Nombre de messages par chapitre (#41). Les chapitres sans discussion sont
+     * absents de la table : le compteur ne s'affiche que là où il y a à lire.
+     */
+    val commentCounts: Map<Long, Long> = emptyMap(),
     /** Chapitres cochés en mode sélection multiple (vide = mode inactif). */
     val selectedChapterIds: Set<Long> = emptySet(),
     /** Ordre d'affichage des chapitres ; false = du plus récent au plus ancien. */
@@ -57,6 +62,7 @@ class NovelDetailViewModel(private val novelId: Long) : ViewModel() {
     private val libraryRepo = ServiceLocator.libraryRepository
     private val reviewRepo = ServiceLocator.reviewRepository
     private val categoryRepo = ServiceLocator.categoryRepository
+    private val commentRepo = ServiceLocator.commentRepository
 
     private val _state = MutableStateFlow(NovelDetailUiState())
     val state: StateFlow<NovelDetailUiState> = _state.asStateFlow()
@@ -75,6 +81,7 @@ class NovelDetailViewModel(private val novelId: Long) : ViewModel() {
             val libraryDef = async { libraryRepo.getLibrary() }
             val summaryDef = async { reviewRepo.getSummary(novelId) }
             val categoriesDef = async { categoryRepo.getCategories() }
+            val commentsDef = async { commentRepo.getCountsByNovel(novelId) }
 
             when (val detail = detailDef.await()) {
                 is ApiResult.Error -> {
@@ -94,6 +101,7 @@ class NovelDetailViewModel(private val novelId: Long) : ViewModel() {
                 ?.firstOrNull { it.novel.id == novelId }?.status
             val summary = (summaryDef.await() as? ApiResult.Success)?.data
             val categories = (categoriesDef.await() as? ApiResult.Success)?.data.orEmpty()
+            val commentCounts = (commentsDef.await() as? ApiResult.Success)?.data.orEmpty()
 
             _state.update {
                 it.copy(
@@ -104,21 +112,27 @@ class NovelDetailViewModel(private val novelId: Long) : ViewModel() {
                     libraryStatus = libraryStatus,
                     reviewSummary = summary,
                     categories = categories,
+                    commentCounts = commentCounts,
                 )
             }
         }
     }
 
-    // Rafraîchit uniquement la progression + les signets (au retour du lecteur).
+    // Rafraîchit progression, signets et compteurs de messages (au retour du lecteur :
+    // on vient peut-être d'y commenter).
     fun refreshProgress() {
         viewModelScope.launch {
             val progressDef = async { progressRepo.getNovelProgress(novelId) }
             val favoritesDef = async { favoriteRepo.getForNovel(novelId) }
+            val commentsDef = async { commentRepo.getCountsByNovel(novelId) }
             (progressDef.await() as? ApiResult.Success)?.let { r ->
                 _state.update { it.copy(progress = r.data.associateBy { p -> p.chapterId }) }
             }
             (favoritesDef.await() as? ApiResult.Success)?.let { r ->
                 _state.update { it.copy(favoriteChapterIds = r.data.map { f -> f.chapterId }.toSet()) }
+            }
+            (commentsDef.await() as? ApiResult.Success)?.let { r ->
+                _state.update { it.copy(commentCounts = r.data) }
             }
         }
     }

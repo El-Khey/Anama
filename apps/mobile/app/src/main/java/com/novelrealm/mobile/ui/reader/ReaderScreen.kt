@@ -81,6 +81,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.novelrealm.mobile.data.remote.dto.ChapterCommentDto
 import com.novelrealm.mobile.data.remote.dto.ChapterDetailDto
 import com.novelrealm.mobile.data.remote.dto.ChapterDto
 import com.novelrealm.mobile.data.remote.dto.displayTitle
@@ -123,6 +124,15 @@ fun ReaderScreen(
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
 
+    // Discussion du chapitre (#41) : un ViewModel par chapitre — la clé change avec lui,
+    // donc changer de chapitre donne un fil neuf sans qu'on ait à le vider à la main.
+    val commentsChapterId = state.chapter?.id ?: 0L
+    val commentsViewModel: ChapterCommentsViewModel = viewModel(
+        key = "comments-$commentsChapterId",
+        factory = vmFactory { ChapterCommentsViewModel(commentsChapterId) },
+    )
+    val comments by commentsViewModel.state.collectAsState()
+
     // Confort de lecture réglé ici même (engrenage) ou dans Profil › Lecture : c'est le
     // même stockage, donc les deux écrans restent d'accord sans effort.
     val store = ServiceLocator.preferencesStore
@@ -139,7 +149,7 @@ fun ReaderScreen(
 
     // Mode plein écran : masque les barres système, rendues à nouveau visibles quand
     // les commandes du lecteur sont affichées (un tap) ou à la sortie de l'écran.
-    val chromeOrSettings = chromeVisible || settingsVisible
+    val chromeOrSettings = chromeVisible || settingsVisible || comments.composerOpen
     DisposableEffect(readerPrefs.reader.fullscreen, chromeOrSettings) {
         val window = (view.context as? android.app.Activity)?.window
         val controller = window?.let { WindowInsetsControllerCompat(it, view) }
@@ -213,8 +223,12 @@ fun ReaderScreen(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
             ) {
-                // Un tap referme d'abord les réglages : sinon il faudrait viser le voile.
-                if (settingsVisible) settingsVisible = false else chromeVisible = !chromeVisible
+                // Un tap referme d'abord ce qui est ouvert : sinon il faudrait viser le voile.
+                when {
+                    settingsVisible -> settingsVisible = false
+                    comments.composerOpen -> commentsViewModel.closeComposer()
+                    else -> chromeVisible = !chromeVisible
+                }
             },
     ) {
         // Capturé une fois : évite un `return` depuis la lambda, qui sauterait aussi les
@@ -233,9 +247,9 @@ fun ReaderScreen(
                         .fillMaxSize()
                         .draggable(
                             orientation = Orientation.Horizontal,
-                            // Le panneau de réglages a ses propres curseurs : un balayage
-                            // dessus ne doit pas changer de chapitre.
-                            enabled = !settingsVisible,
+                            // Les panneaux ont leurs propres gestes (curseurs, saisie) :
+                            // un balayage dessus ne doit pas changer de chapitre.
+                            enabled = !settingsVisible && !comments.composerOpen,
                             state = rememberDraggableState { delta ->
                                 // Le texte suit le doigt au millimètre du côté où il y a
                                 // un chapitre ; de l'autre il « bute » (élastique très
@@ -268,8 +282,15 @@ fun ReaderScreen(
                         style = style,
                         previous = state.previousChapter,
                         next = state.nextChapter,
+                        comments = comments,
                         onOpenPrevious = viewModel::openPrevious,
                         onOpenNext = viewModel::openNext,
+                        onWriteComment = commentsViewModel::startNewThread,
+                        onReplyComment = commentsViewModel::startReply,
+                        onEditComment = commentsViewModel::startEdit,
+                        onDeleteComment = commentsViewModel::delete,
+                        onLoadMoreComments = commentsViewModel::loadMore,
+                        onRetryComments = commentsViewModel::load,
                         modifier = Modifier
                             .fillMaxSize()
                             .offset { IntOffset(swipeOffset.roundToInt(), 0) }
@@ -433,6 +454,34 @@ fun ReaderScreen(
                 onReset = store::resetReader,
             )
         }
+
+        // ── Rédaction d'un commentaire (#41) ──
+        // Seule la SAISIE sort du fil du chapitre : la discussion, elle, se lit en place,
+        // sous « Fin du chapitre ». Voir ChapterCommentsSection pour le pourquoi.
+        AnimatedVisibility(
+            visible = comments.composerOpen,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            SheetScrim(
+                onDismiss = commentsViewModel::closeComposer,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        AnimatedVisibility(
+            visible = comments.composerOpen,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            CommentComposerSheet(
+                state = comments,
+                onDraftChange = commentsViewModel::setDraft,
+                onSend = commentsViewModel::send,
+                onClose = commentsViewModel::closeComposer,
+            )
+        }
     }
 }
 
@@ -444,8 +493,15 @@ private fun ChapterBody(
     style: ReaderStyle,
     previous: ChapterDto?,
     next: ChapterDto?,
+    comments: ChapterCommentsUiState,
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
+    onWriteComment: () -> Unit,
+    onReplyComment: (rootId: Long, pseudo: String?, mention: Boolean) -> Unit,
+    onEditComment: (comment: ChapterCommentDto, rootId: Long?) -> Unit,
+    onDeleteComment: (comment: ChapterCommentDto, rootId: Long?) -> Unit,
+    onLoadMoreComments: () -> Unit,
+    onRetryComments: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Le texte est découpé en paragraphes pour pouvoir appliquer l'écart réglable entre
@@ -479,16 +535,14 @@ private fun ChapterBody(
         Spacer(Modifier.height(44.dp))
         EndOfChapterLabel(foreground = style.foreground)
 
+        // Le texte peut aller jusqu'au bord (marge réglée à 0), pas les boutons : on leur
+        // rend le retrait qui manque pour qu'ils restent des boutons, et non des bandeaux
+        // collés aux tranches de l'écran.
+        val buttonInset = (14.dp - style.horizontalPadding).coerceAtLeast(0.dp)
+
         if (previous != null || next != null) {
             Spacer(Modifier.height(22.dp))
-            // Le texte peut aller jusqu'au bord (marge réglée à 0), pas les boutons : on
-            // leur rend le retrait qui manque pour qu'ils restent des boutons, et non des
-            // bandeaux collés aux tranches de l'écran.
-            Column(
-                modifier = Modifier.padding(
-                    horizontal = (14.dp - style.horizontalPadding).coerceAtLeast(0.dp),
-                ),
-            ) {
+            Column(modifier = Modifier.padding(horizontal = buttonInset)) {
                 if (previous != null) {
                     ChapterNavCard(
                         chapter = previous,
@@ -508,6 +562,21 @@ private fun ChapterBody(
                 }
             }
         }
+
+        // La discussion vient APRÈS la navigation : « chapitre suivant » reste l'action
+        // attendue en fin de lecture, on ne glisse pas un mur de messages devant elle.
+        Spacer(Modifier.height(34.dp))
+        ChapterCommentsSection(
+            state = comments,
+            foreground = style.foreground,
+            onWrite = onWriteComment,
+            onReply = onReplyComment,
+            onEdit = onEditComment,
+            onDelete = onDeleteComment,
+            onLoadMore = onLoadMoreComments,
+            onRetry = onRetryComments,
+            modifier = Modifier.padding(horizontal = buttonInset),
+        )
 
         Spacer(Modifier.height(28.dp))
         Spacer(Modifier.navigationBarsPadding())
