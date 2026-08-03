@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Palette
@@ -115,6 +116,16 @@ fun ProfileScreen(
                             title = "Sécurité",
                             subtitle = "Mot de passe et suppression du compte",
                             onClick = { onOpenSettings(SettingsRoutes.ACCOUNT) },
+                        )
+                    }
+
+                    Spacer(Modifier.height(20.dp))
+                    SettingsSection(title = "Ma collection") {
+                        SettingsRow(
+                            icon = Icons.Filled.FormatQuote,
+                            title = "Mes citations",
+                            subtitle = "Les passages que tu as gardés",
+                            onClick = { onOpenSettings(SettingsRoutes.MY_QUOTES) },
                         )
                     }
 

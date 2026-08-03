@@ -16,6 +16,7 @@ import com.novelrealm.mobile.data.remote.api.HistoryApi
 import com.novelrealm.mobile.data.remote.api.LibraryApi
 import com.novelrealm.mobile.data.remote.api.NovelApi
 import com.novelrealm.mobile.data.remote.api.ProgressApi
+import com.novelrealm.mobile.data.remote.api.QuoteApi
 import com.novelrealm.mobile.data.remote.api.ReviewApi
 import com.novelrealm.mobile.data.remote.api.UserApi
 import com.novelrealm.mobile.data.repository.AuthRepository
@@ -27,6 +28,7 @@ import com.novelrealm.mobile.data.repository.HistoryRepository
 import com.novelrealm.mobile.data.repository.LibraryRepository
 import com.novelrealm.mobile.data.repository.NovelRepository
 import com.novelrealm.mobile.data.repository.ProgressRepository
+import com.novelrealm.mobile.data.repository.QuoteRepository
 import com.novelrealm.mobile.data.repository.ReviewRepository
 import com.novelrealm.mobile.data.repository.UserRepository
 import kotlinx.coroutines.CoroutineScope
@@ -112,6 +114,7 @@ object ServiceLocator {
     private val authApi: AuthApi by lazy { retrofit.create(AuthApi::class.java) }
     private val chapterApi: ChapterApi by lazy { retrofit.create(ChapterApi::class.java) }
     private val commentApi: CommentApi by lazy { retrofit.create(CommentApi::class.java) }
+    private val quoteApi: QuoteApi by lazy { retrofit.create(QuoteApi::class.java) }
     private val libraryApi: LibraryApi by lazy { retrofit.create(LibraryApi::class.java) }
     private val progressApi: ProgressApi by lazy { retrofit.create(ProgressApi::class.java) }
     private val historyApi: HistoryApi by lazy { retrofit.create(HistoryApi::class.java) }
@@ -125,6 +128,7 @@ object ServiceLocator {
     val novelRepository: NovelRepository by lazy { NovelRepository(novelApi) }
     val chapterRepository: ChapterRepository by lazy { ChapterRepository(chapterApi) }
     val commentRepository: CommentRepository by lazy { CommentRepository(commentApi) }
+    val quoteRepository: QuoteRepository by lazy { QuoteRepository(quoteApi) }
     val libraryRepository: LibraryRepository by lazy { LibraryRepository(libraryApi) }
     val progressRepository: ProgressRepository by lazy { ProgressRepository(progressApi) }
     val historyRepository: HistoryRepository by lazy { HistoryRepository(historyApi) }

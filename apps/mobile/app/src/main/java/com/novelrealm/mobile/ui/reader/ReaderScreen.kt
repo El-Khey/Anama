@@ -3,6 +3,7 @@ package com.novelrealm.mobile.ui.reader
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -14,6 +15,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -53,6 +55,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -64,6 +68,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -115,6 +122,11 @@ fun ReaderScreen(
     novelId: Long,
     chapterId: Long,
     onBack: () -> Unit,
+    /**
+     * Bloc à rejoindre et à surligner à l'ouverture ; -1 = ouverture normale.
+     * Alimenté par « Aller au passage » depuis la collection de citations.
+     */
+    highlightBlock: Int = -1,
     modifier: Modifier = Modifier,
     viewModel: ReaderViewModel = viewModel(factory = vmFactory { ReaderViewModel(novelId, chapterId) }),
 ) {
@@ -133,6 +145,25 @@ fun ReaderScreen(
     )
     val comments by commentsViewModel.state.collectAsState()
 
+    // Citer un passage : même clé de chapitre, état séparé — citer est un geste privé,
+    // commenter est public, mêler les deux obligerait chacun à connaître l'autre.
+    val quoteViewModel: ChapterQuoteViewModel = viewModel(
+        key = "quotes-$commentsChapterId",
+        factory = vmFactory { ChapterQuoteViewModel(commentsChapterId) },
+    )
+    val quote by quoteViewModel.state.collectAsState()
+    val quotingBlock = quote.blockIndex
+
+    // Position verticale de chaque bloc dans la page, relevée à la mise en page :
+    // c'est ce qui permet de se rendre à un passage précis sans le chercher.
+    val blockOffsets = remember(state.chapter?.id) { mutableStateMapOf<Int, Int>() }
+    var highlightedBlock by remember(state.chapter?.id) { mutableIntStateOf(-1) }
+    val highlightAlpha by animateFloatAsState(
+        targetValue = if (highlightedBlock >= 0) 1f else 0f,
+        animationSpec = tween(durationMillis = 600),
+        label = "highlightAlpha",
+    )
+
     // Confort de lecture réglé ici même (engrenage) ou dans Profil › Lecture : c'est le
     // même stockage, donc les deux écrans restent d'accord sans effort.
     val store = ServiceLocator.preferencesStore
@@ -149,7 +180,8 @@ fun ReaderScreen(
 
     // Mode plein écran : masque les barres système, rendues à nouveau visibles quand
     // les commandes du lecteur sont affichées (un tap) ou à la sortie de l'écran.
-    val chromeOrSettings = chromeVisible || settingsVisible || comments.composerOpen
+    val chromeOrSettings =
+        chromeVisible || settingsVisible || comments.composerOpen || quotingBlock != null
     DisposableEffect(readerPrefs.reader.fullscreen, chromeOrSettings) {
         val window = (view.context as? android.app.Activity)?.window
         val controller = window?.let { WindowInsetsControllerCompat(it, view) }
@@ -200,7 +232,9 @@ fun ReaderScreen(
         swiping = false
         swipeTarget = 0f
         scrollState.scrollTo(0)
-        val target = state.initialPercent
+        // Arrivée depuis une citation : la position de reprise ne doit pas voler la
+        // place au passage qu'on vient chercher.
+        val target = if (highlightBlock >= 0) 0 else state.initialPercent
         if (target in 1..99) {
             val max = withTimeoutOrNull(1500) {
                 snapshotFlow { scrollState.maxValue }.first { it != Int.MAX_VALUE && it > 0 }
@@ -215,6 +249,35 @@ fun ReaderScreen(
         }
     }
 
+    // Un tap referme d'abord ce qui est ouvert : sinon il faudrait viser le voile.
+    // Centralisé ici parce que les paragraphes interceptent désormais leurs propres
+    // taps (pour l'appui long) et doivent reproduire exactement le même arbitrage.
+    val onSurfaceTap: () -> Unit = {
+        when {
+            settingsVisible -> settingsVisible = false
+            comments.composerOpen -> commentsViewModel.closeComposer()
+            quotingBlock != null -> quoteViewModel.cancel()
+            else -> chromeVisible = !chromeVisible
+        }
+    }
+
+    // Rejoint le bloc demandé dès qu'il est mesuré. La page du lecteur n'est pas une
+    // liste paresseuse : tous les blocs sont posés, donc leur position est connue —
+    // il suffit d'attendre la première mise en page.
+    LaunchedEffect(state.chapter?.id, highlightBlock, state.isLoading) {
+        if (highlightBlock < 0 || state.isLoading || state.chapter == null) return@LaunchedEffect
+        val y = withTimeoutOrNull(3000) {
+            snapshotFlow { blockOffsets[highlightBlock] }.first { it != null }
+        } ?: return@LaunchedEffect
+        // On s'arrête un peu au-dessus : un passage collé au bord haut de l'écran se
+        // lit mal, et on perd ce qui le précède.
+        scrollState.animateScrollTo((y - 160).coerceAtLeast(0))
+        chromeVisible = false
+        highlightedBlock = highlightBlock
+        delay(2600)
+        highlightedBlock = -1
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -222,14 +285,7 @@ fun ReaderScreen(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-            ) {
-                // Un tap referme d'abord ce qui est ouvert : sinon il faudrait viser le voile.
-                when {
-                    settingsVisible -> settingsVisible = false
-                    comments.composerOpen -> commentsViewModel.closeComposer()
-                    else -> chromeVisible = !chromeVisible
-                }
-            },
+            ) { onSurfaceTap() },
     ) {
         // Capturé une fois : évite un `return` depuis la lambda, qui sauterait aussi les
         // barres de commandes déclarées plus bas dans ce même Box.
@@ -249,7 +305,8 @@ fun ReaderScreen(
                             orientation = Orientation.Horizontal,
                             // Les panneaux ont leurs propres gestes (curseurs, saisie) :
                             // un balayage dessus ne doit pas changer de chapitre.
-                            enabled = !settingsVisible && !comments.composerOpen,
+                            enabled = !settingsVisible && !comments.composerOpen &&
+                                quotingBlock == null,
                             state = rememberDraggableState { delta ->
                                 // Le texte suit le doigt au millimètre du côté où il y a
                                 // un chapitre ; de l'autre il « bute » (élastique très
@@ -291,6 +348,19 @@ fun ReaderScreen(
                         onDeleteComment = commentsViewModel::delete,
                         onLoadMoreComments = commentsViewModel::loadMore,
                         onRetryComments = commentsViewModel::load,
+                        highlightedBlock = highlightedBlock,
+                        highlightAlpha = highlightAlpha,
+                        // Mesure retenue au PREMIER passage seulement, quand le
+                        // défilement est encore à zéro : la position d'un bloc y vaut
+                        // directement sa cible de défilement. Et rien n'est relevé du
+                        // tout quand aucun passage n'est demandé.
+                        onBlockOffset = { index, y ->
+                            if (highlightBlock >= 0 && index !in blockOffsets) {
+                                blockOffsets[index] = y
+                            }
+                        },
+                        onSurfaceTap = onSurfaceTap,
+                        onQuoteBlock = quoteViewModel::start,
                         modifier = Modifier
                             .fillMaxSize()
                             .offset { IntOffset(swipeOffset.roundToInt(), 0) }
@@ -482,6 +552,64 @@ fun ReaderScreen(
                 onClose = commentsViewModel::closeComposer,
             )
         }
+
+        // ── Créer une citation (#41, §3) ──
+        AnimatedVisibility(
+            visible = quotingBlock != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            SheetScrim(
+                onDismiss = quoteViewModel::cancel,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        AnimatedVisibility(
+            visible = quotingBlock != null,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            QuoteComposerSheet(
+                blockText = quote.blockText,
+                isSaving = quote.isSaving,
+                error = quote.error,
+                onConfirm = quoteViewModel::save,
+                onDismiss = quoteViewModel::cancel,
+            )
+        }
+
+        // Confirmation fugace : une citation est un geste discret, elle ne mérite ni
+        // boîte de dialogue ni changement d'écran.
+        val confirmation = quote.confirmation
+        AnimatedVisibility(
+            visible = confirmation != null,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 96.dp),
+        ) {
+            Surface(
+                color = MaterialTheme.colorScheme.inverseSurface,
+                shape = RoundedCornerShape(50),
+                tonalElevation = 6.dp,
+            ) {
+                Text(
+                    text = confirmation.orEmpty(),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.inverseOnSurface,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                )
+            }
+        }
+        LaunchedEffect(confirmation) {
+            if (confirmation != null) {
+                delay(2200)
+                quoteViewModel.confirmationShown()
+            }
+        }
     }
 }
 
@@ -502,6 +630,11 @@ private fun ChapterBody(
     onDeleteComment: (comment: ChapterCommentDto, rootId: Long?) -> Unit,
     onLoadMoreComments: () -> Unit,
     onRetryComments: () -> Unit,
+    highlightedBlock: Int,
+    highlightAlpha: Float,
+    onBlockOffset: (index: Int, y: Int) -> Unit,
+    onSurfaceTap: () -> Unit,
+    onQuoteBlock: (index: Int, text: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Le texte est découpé en paragraphes pour pouvoir appliquer l'écart réglable entre
@@ -527,9 +660,41 @@ private fun ChapterBody(
         )
 
         Spacer(Modifier.height(26.dp))
+        val highlightColor = MaterialTheme.colorScheme.primary
         paragraphs.forEachIndexed { index, paragraph ->
             if (index > 0) Spacer(Modifier.height(style.paragraphSpacing))
-            Text(text = paragraph, style = style.textStyle, color = style.foreground)
+            val highlighted = index == highlightedBlock && highlightAlpha > 0.01f
+            Text(
+                text = paragraph,
+                style = style.textStyle,
+                color = style.foreground,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // `positionInParent` donne la position DANS la colonne défilante :
+                    // c'est directement la cible d'un `scrollTo`.
+                    .onGloballyPositioned { coordinates ->
+                        onBlockOffset(index, coordinates.positionInParent().y.roundToInt())
+                    }
+                    .then(
+                        if (highlighted) {
+                            Modifier.background(
+                                color = highlightColor.copy(alpha = 0.20f * highlightAlpha),
+                                shape = RoundedCornerShape(6.dp),
+                            )
+                        } else {
+                            Modifier
+                        },
+                    )
+                    // Le paragraphe intercepte ses propres gestes : il doit donc
+                    // reproduire le tap de la page, sinon les barres ne réagiraient
+                    // plus qu'entre les paragraphes.
+                    .pointerInput(index) {
+                        detectTapGestures(
+                            onTap = { onSurfaceTap() },
+                            onLongPress = { onQuoteBlock(index, paragraph) },
+                        )
+                    },
+            )
         }
 
         Spacer(Modifier.height(44.dp))

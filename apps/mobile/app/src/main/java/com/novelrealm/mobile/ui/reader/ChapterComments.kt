@@ -13,8 +13,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,7 +30,6 @@ import androidx.compose.material.icons.automirrored.outlined.Comment
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -53,6 +56,12 @@ import coil.compose.AsyncImage
 import com.novelrealm.mobile.data.remote.dto.ChapterCommentDto
 import com.novelrealm.mobile.data.remote.resolveImageUrl
 import com.novelrealm.mobile.ui.util.relativeTimeLabel
+
+/**
+ * Longueur maximale d'un message. Doit rester alignée sur `ChapterComment.MAX_BODY_LENGTH`
+ * côté back : c'est lui qui refuse, l'app ne fait qu'éviter d'aller au refus.
+ */
+private const val MaxCommentLength = 2_000
 
 /**
  * Discussion du chapitre, posée **dans le fil du chapitre** — on continue de défiler
@@ -474,10 +483,26 @@ fun CommentComposerSheet(
     ) {
         Column(
             modifier = Modifier
-                .imePadding()
-                .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                // UN SEUL retrait bas, valant max(clavier, barre de navigation).
+                // `imePadding()` suivi de `navigationBarsPadding()` ADDITIONNE les deux :
+                // clavier ouvert, on gagnait une bande vide de la hauteur de la barre
+                // système entre le champ et le clavier.
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
+                .padding(horizontal = 16.dp)
+                .padding(top = 10.dp, bottom = 12.dp),
         ) {
+            // Poignée, comme sur le panneau de réglages : les deux panneaux du lecteur
+            // s'ouvrent pareil, ils doivent se ressembler.
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 38.dp, height = 4.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)),
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = when (val target = state.target) {
@@ -501,7 +526,7 @@ fun CommentComposerSheet(
 
             val actionError = state.actionError
             if (actionError != null) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 Text(
                     text = actionError,
                     style = MaterialTheme.typography.labelMedium,
@@ -509,35 +534,93 @@ fun CommentComposerSheet(
                 )
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.Bottom) {
                 OutlinedTextField(
                     value = state.draft,
-                    onValueChange = onDraftChange,
+                    // La limite est tenue à la saisie, et pas seulement par le serveur :
+                    // découvrir au moment d'envoyer qu'on a écrit 200 caractères de trop
+                    // est la pire façon de l'apprendre.
+                    onValueChange = { if (it.length <= MaxCommentLength) onDraftChange(it) },
                     placeholder = { Text("Écris ton message…") },
-                    shape = RoundedCornerShape(20.dp),
-                    maxLines = 6,
+                    shape = RoundedCornerShape(22.dp),
+                    // Le champ grandit avec le texte, puis défile sur lui-même. Sans
+                    // plafond, un long message poussait le panneau sur tout l'écran.
+                    maxLines = 5,
+                    textStyle = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier
                         .weight(1f)
+                        .heightIn(max = 152.dp)
                         .focusRequester(focusRequester),
                 )
-                Spacer(Modifier.width(6.dp))
-                IconButton(onClick = onSend, enabled = state.canSend) {
-                    if (state.isSending) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                        )
-                    } else {
-                        Icon(
-                            Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Publier",
-                            tint = if (state.canSend) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                        )
-                    }
-                }
+                Spacer(Modifier.width(10.dp))
+                SendButton(
+                    enabled = state.canSend,
+                    sending = state.isSending,
+                    onClick = onSend,
+                )
             }
+
+            // Le compteur n'apparaît qu'à l'approche de la limite : affiché en
+            // permanence, il ne ferait que meubler.
+            if (state.draft.length > MaxCommentLength * 4 / 5) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "${state.draft.length} / $MaxCommentLength",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (state.draft.length >= MaxCommentLength) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.align(Alignment.End),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Bouton d'envoi : un **disque plein** de 46 dp, et non une icône nue.
+ *
+ * Aligné sur le bas du champ, une icône seule flottait dans le vide dès que le texte
+ * dépassait une ligne — c'est ce qui donnait l'impression d'un bouton décentré. Un
+ * disque a un bord : il se cale visuellement sur celui du champ.
+ */
+@Composable
+private fun SendButton(enabled: Boolean, sending: Boolean, onClick: () -> Unit) {
+    val container = if (enabled || sending) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+    }
+    val content = if (enabled || sending) {
+        MaterialTheme.colorScheme.onPrimary
+    } else {
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+    }
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(46.dp)
+            .clip(CircleShape)
+            .background(container)
+            .clickable(enabled = enabled, onClick = onClick),
+    ) {
+        if (sending) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.dp,
+                color = content,
+            )
+        } else {
+            Icon(
+                Icons.AutoMirrored.Filled.Send,
+                contentDescription = "Publier",
+                tint = content,
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }
