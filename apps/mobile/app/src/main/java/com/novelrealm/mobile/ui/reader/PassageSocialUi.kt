@@ -1,18 +1,25 @@
 package com.novelrealm.mobile.ui.reader
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -38,12 +45,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -143,17 +152,17 @@ private fun MarkItem(icon: ImageVector, count: Long, ink: Color, description: St
 /**
  * Le panneau d'un passage : réactions, discussion et saisie **d'un seul coup**.
  *
- * <p>Il n'y a plus de menu intermédiaire. Un premier essai en posait un — emojis, puis
+ * <p>Il n'y a pas de menu intermédiaire. Un premier essai en posait un — emojis, puis
  * « Commenter » — et il ratait l'essentiel : on touche une marque pour LIRE ce qui a
- * été dit, pas pour choisir dans une liste. Un menu ajoutait un geste avant la seule
- * chose qu'on était venu chercher.
+ * été dit, pas pour choisir dans une liste.
  *
- * <p>Le passage n'est pas rappelé en tête non plus : il est juste derrière, à l'écran,
- * là où on vient de le toucher. L'écrire une seconde fois volait trois lignes à la
- * discussion pour redire ce qu'on avait sous les yeux.
+ * <p>Le passage n'est pas rappelé en tête : il est juste derrière, à l'écran, là où on
+ * vient de le toucher. L'écrire une seconde fois volait trois lignes à la discussion
+ * pour redire ce qu'on avait sous les yeux.
  *
- * <p>« Citer » reste accessible, relégué en petit dans l'en-tête : c'est un geste rare
- * et solitaire, il n'a pas à disputer la place à la conversation.
+ * <p>Les intitulés en capitales espacées reprennent la signature des sections de
+ * l'app (réglages, commentaires de fin de chapitre) : le panneau doit se lire comme
+ * une partie de NovelRealm, pas comme une boîte de dialogue rapportée.
  */
 @Composable
 fun PassageThreadSheet(
@@ -164,6 +173,8 @@ fun PassageThreadSheet(
     onReact: (String) -> Unit,
     onQuote: () -> Unit,
     onDelete: (PassageCommentDto) -> Unit,
+    onReply: (PassageCommentDto) -> Unit,
+    onCancelReply: () -> Unit,
     onDraftChange: (String) -> Unit,
     onToggleSpoiler: () -> Unit,
     onSend: () -> Unit,
@@ -172,9 +183,9 @@ fun PassageThreadSheet(
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
         tonalElevation = 6.dp,
-        shadowElevation = 16.dp,
+        shadowElevation = 20.dp,
         modifier = modifier
             .fillMaxWidth()
             .clickable(
@@ -188,50 +199,57 @@ fun PassageThreadSheet(
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
                 .padding(bottom = 10.dp),
         ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 14.dp),
-            ) {
+            // Poignée centrée, fermeture à droite : la croix ne doit pas décaler la
+            // poignée du milieu, elle est donc posée PAR-DESSUS et non à côté.
+            Box(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
                 Box(
                     modifier = Modifier
+                        .align(Alignment.Center)
                         .size(width = 36.dp, height = 4.dp)
                         .clip(RoundedCornerShape(50))
                         .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)),
                 )
-            }
-
-            // Les emojis en premier : c'est la réponse la moins coûteuse, elle doit être
-            // la plus proche du pouce à l'ouverture.
-            ReactionRow(reactions = reactions, myEmoji = myEmoji, onReact = onReact)
-
-            Spacer(Modifier.height(14.dp))
-            SheetRule()
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 20.dp, end = 10.dp, top = 12.dp, bottom = 4.dp),
-            ) {
-                Text(
-                    text = if (showComments) commentCountLabel(state.thread.size) else "Ce passage",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                GhostAction(icon = Icons.Filled.FormatQuote, label = "Citer", onClick = onQuote)
-                Spacer(Modifier.width(2.dp))
                 Icon(
                     imageVector = Icons.Filled.Close,
                     contentDescription = "Fermer",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 8.dp)
                         .clip(CircleShape)
                         .clickable(onClick = onClose)
-                        .padding(8.dp)
-                        .size(18.dp),
+                        .padding(7.dp)
+                        .size(17.dp),
                 )
+            }
+
+            Spacer(Modifier.height(14.dp))
+            PassageSectionLabel("Réactions")
+            // Les emojis d'abord, et avec une vraie surface : c'est la réponse la moins
+            // coûteuse, elle doit être la plus visible et la plus proche du pouce.
+            ReactionRow(reactions = reactions, myEmoji = myEmoji, onReact = onReact)
+
+            Spacer(Modifier.height(16.dp))
+            PassageRule()
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 12.dp, top = 14.dp, bottom = 2.dp),
+            ) {
+                Text(
+                    text = if (showComments) commentCountLabel(state.thread.size).uppercase()
+                    else "CE PASSAGE",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.5.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f),
+                )
+                // « Citer » relégué en petit : geste rare et solitaire, il n'a pas à
+                // disputer la place à la conversation.
+                GhostAction(icon = Icons.Filled.FormatQuote, label = "Citer", onClick = onQuote)
             }
 
             if (showComments) {
@@ -239,7 +257,7 @@ fun PassageThreadSheet(
                     modifier = Modifier
                         .heightIn(max = 260.dp)
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     when {
                         state.threadLoading -> Box(
@@ -259,8 +277,23 @@ fun PassageThreadSheet(
                             modifier = Modifier.padding(vertical = 14.dp),
                         )
 
-                        else -> state.thread.forEach { comment ->
-                            PassageCommentRow(comment = comment, onDelete = { onDelete(comment) })
+                        else -> state.thread.forEach { root ->
+                            PassageCommentRow(
+                                comment = root,
+                                onDelete = { onDelete(root) },
+                                onReply = { onReply(root) },
+                            )
+                            // Les réponses sont décalées d'un seul cran, jamais deux :
+                            // au-delà, la colonne de texte devient inutilisable sur un
+                            // téléphone. Le serveur garantit cette profondeur.
+                            root.replies.forEach { reply ->
+                                PassageCommentRow(
+                                    comment = reply,
+                                    onDelete = { onDelete(reply) },
+                                    onReply = { onReply(reply) },
+                                    modifier = Modifier.padding(start = 22.dp),
+                                )
+                            }
                         }
                     }
                 }
@@ -289,12 +322,13 @@ fun PassageThreadSheet(
             }
 
             if (showComments) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(4.dp))
                 PassageComposer(
                     state = state,
                     onDraftChange = onDraftChange,
                     onToggleSpoiler = onToggleSpoiler,
                     onSend = onSend,
+                    onCancelReply = onCancelReply,
                 )
             }
         }
@@ -308,9 +342,22 @@ private fun commentCountLabel(count: Int): String = when (count) {
     else -> "$count commentaires"
 }
 
+/** Intitulé de section : capitales espacées en accent, comme partout dans l'app. */
+@Composable
+private fun PassageSectionLabel(text: String) {
+    Text(
+        text = text.uppercase(),
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 1.5.sp,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 20.dp, bottom = 10.dp),
+    )
+}
+
 /** Filet horizontal très léger, pour séparer sans cloisonner. */
 @Composable
-private fun SheetRule() {
+private fun PassageRule() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -321,10 +368,17 @@ private fun SheetRule() {
 }
 
 /**
- * La rangée d'emojis. Chacun porte son compte dessous : c'est la seule vue où le
- * détail a sa place, puisqu'on y est venu exprès.
+ * La rangée d'emojis — six **tuiles** de largeur égale.
  *
- * <p>Les six sont toujours affichés, même à zéro. Ne montrer que ceux déjà posés
+ * <p><b>Chaque emoji porte sa propre surface</b>, au lieu de flotter sur le fond. Sans
+ * elle, il n'y avait rien à toucher : la cible se devinait, et la rangée se lisait
+ * comme une décoration plutôt que comme la première action du panneau.
+ *
+ * <p><b>Réparties au poids, pas par `SpaceBetween`.</b> Cette dernière collait le
+ * premier et le dernier emoji contre les bords, jusqu'à les rogner. Six poids égaux
+ * dans une rangée à marges fixes tombent juste quelle que soit la largeur d'écran.
+ *
+ * <p>Les six sont toujours affichés, même à zéro : ne montrer que ceux déjà posés
  * ferait bouger les positions d'un passage à l'autre, et on toucherait celui qu'on ne
  * visait pas.
  */
@@ -337,35 +391,70 @@ private fun ReactionRow(
     val counts = reactions.associate { it.emoji to it.count }
 
     Row(
-        horizontalArrangement = Arrangement.SpaceBetween,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
     ) {
         PassageRepository.EMOJIS.forEach { emoji ->
-            val mine = emoji == myEmoji
-            val count = counts[emoji] ?: 0L
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(
-                        if (mine) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                        else Color.Transparent,
-                    )
-                    .clickable { onReact(emoji) }
-                    .padding(horizontal = 9.dp, vertical = 7.dp),
+            ReactionTile(
+                emoji = emoji,
+                count = counts[emoji] ?: 0L,
+                mine = emoji == myEmoji,
+                onClick = { onReact(emoji) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReactionTile(
+    emoji: String,
+    count: Long,
+    mine: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(16.dp)
+    Surface(
+        color = if (mine) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+        shape = shape,
+        modifier = modifier.then(
+            // Un contour plutôt qu'un simple aplat plus vif : sa réaction se repère au
+            // premier coup d'œil même quand l'accent est proche du fond du thème.
+            if (mine) {
+                Modifier.border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), shape)
+            } else {
+                Modifier
+            },
+        ),
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .clip(shape)
+                .clickable(onClick = onClick)
+                .padding(vertical = 9.dp),
+        ) {
+            Text(text = emoji, fontSize = 23.sp)
+            Spacer(Modifier.height(4.dp))
+            // Emplacement de hauteur FIXE, vide quand personne n'a réagi. Le tiret qui
+            // s'y trouvait avant ne voulait rien dire — il ne servait qu'à empêcher la
+            // tuile de rétrécir. Une boîte réservée fait le même travail sans rien
+            // écrire, et les six tuiles gardent la même hauteur.
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.height(13.dp),
             ) {
-                Text(text = emoji, fontSize = 21.sp)
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    text = if (count > 0) "$count" else "–",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                    fontWeight = if (mine) FontWeight.Bold else FontWeight.Normal,
-                    color = when {
-                        mine -> MaterialTheme.colorScheme.primary
-                        count > 0 -> MaterialTheme.colorScheme.onSurfaceVariant
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
-                    },
-                )
+                if (count > 0) {
+                    Text(
+                        text = "$count",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                        fontWeight = FontWeight.Bold,
+                        color = if (mine) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                    )
+                }
             }
         }
     }
@@ -406,27 +495,52 @@ private fun GhostAction(icon: ImageVector, label: String, onClick: () -> Unit) {
  * suppression n'apparaît que sur ses propres messages.
  */
 @Composable
-private fun PassageCommentRow(comment: PassageCommentDto, onDelete: () -> Unit) {
+private fun PassageCommentRow(
+    comment: PassageCommentDto,
+    onDelete: () -> Unit,
+    onReply: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     // Un spoiler est MASQUÉ, pas flouté : `Modifier.blur` ne fait rien avant Android 12,
     // et un flou qui ne s'applique pas révèle exactement ce qu'il devait cacher.
     var revealed by remember(comment.id) { mutableStateOf(!comment.spoiler) }
 
+    val shape = RoundedCornerShape(16.dp)
     Surface(
-        // Ses propres messages sont teintés de l'accent : on se retrouve dans un fil
-        // sans avoir à lire les pseudos.
-        color = if (comment.mine) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
-        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-        shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+        // Fond NEUTRE pour tout le monde. Teinter ses propres messages d'un aplat
+        // d'accent donnait un brun boueux dès que l'accent était chaud : la couleur du
+        // thème se mélangeait à celle de la surface au lieu de s'y poser. Un contour
+        // fin distingue tout aussi bien, sans salir le fond.
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+        shape = shape,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp)
+            .then(
+                if (comment.mine) {
+                    // Volontairement très pâle : le contour doit se deviner, pas
+                    // encadrer. À 0.35 il découpait chaque bulle et la liste se lisait
+                    // comme une grille de formulaire.
+                    Modifier.border(
+                        1.dp,
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                        shape,
+                    )
+                } else {
+                    Modifier
+                },
+            ),
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Avatar(url = comment.avatarUrl, pseudo = comment.pseudo)
+                PassageAvatar(url = comment.avatarUrl, pseudo = comment.pseudo)
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = comment.pseudo ?: "Lecteur",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
+                    color = if (comment.mine) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -484,6 +598,21 @@ private fun PassageCommentRow(comment: PassageCommentDto, onDelete: () -> Unit) 
                     )
                 }
             }
+
+            // « Répondre » en pied et non en tête : on décide de répondre APRÈS avoir
+            // lu, jamais avant. Sans cadre ni fond, pour ne pas peser autant que le
+            // message lui-même.
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Répondre",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onReply)
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+            )
         }
     }
 }
@@ -509,7 +638,7 @@ private fun ComposerChip(label: String, active: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Avatar(url: String?, pseudo: String?) {
+private fun PassageAvatar(url: String?, pseudo: String?) {
     val resolved = resolveImageUrl(url)
     if (resolved != null) {
         AsyncImage(
@@ -548,8 +677,43 @@ private fun PassageComposer(
     onDraftChange: (String) -> Unit,
     onToggleSpoiler: () -> Unit,
     onSend: () -> Unit,
+    onCancelReply: () -> Unit,
 ) {
     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+        // À qui l'on répond, juste au-dessus du champ. Sans ce rappel, on tape sa
+        // réponse sans plus savoir à quel message elle s'accroche — et une fois
+        // publiée, il est trop tard pour s'en apercevoir.
+        state.replyTo?.let { target ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
+                    .padding(start = 12.dp, end = 6.dp, top = 7.dp, bottom = 7.dp),
+            ) {
+                Text(
+                    text = "Réponse à ${target.pseudo ?: "ce message"}",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "Annuler la réponse",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .clickable(onClick = onCancelReply)
+                        .padding(5.dp)
+                        .size(13.dp),
+                )
+            }
+        }
         // La case spoiler n'apparaît qu'une fois qu'on écrit : affichée en permanence,
         // elle meublerait une ligne entière au-dessus d'un champ vide. C'est en
         // rédigeant qu'on se rend compte qu'on en dit trop.
@@ -575,7 +739,7 @@ private fun PassageComposer(
         }
         Row(verticalAlignment = Alignment.Bottom) {
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f),
                 shape = RoundedCornerShape(23.dp),
                 modifier = Modifier.weight(1f).heightIn(min = 46.dp, max = 120.dp),
             ) {
@@ -585,7 +749,8 @@ private fun PassageComposer(
                 ) {
                     if (state.draft.isEmpty()) {
                         Text(
-                            text = "Ce que ce passage t'inspire…",
+                            text = if (state.replyTo != null) "Ta réponse…"
+                            else "Ce que ce passage t'inspire…",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                         )
@@ -637,3 +802,85 @@ private fun PassageComposer(
         }
     }
 }
+
+// ── Confirmation d'une réaction ───────────────────────────────────────────────
+
+/** Une goutte : sa colonne, son retard au départ, sa taille. */
+private data class RainDrop(val xFraction: Float, val delay: Float, val size: Int)
+
+/**
+ * Pluie brève de l'emoji qu'on vient de poser.
+ *
+ * <p><b>Pourquoi une animation plutôt qu'un message.</b> Le panneau se referme au
+ * moment où l'on réagit : sans rien, le geste n'aurait aucun accusé de réception, et
+ * le compteur qui vient de changer est déjà hors de vue. La pluie dit « c'est parti »
+ * sans occuper une ligne d'écran ni demander à être fermée.
+ *
+ * <p><b>Volontairement sobre.</b> Neuf gouttes, une seconde et demie, une chute droite
+ * et un fondu — pas de rotation, pas de rebond, pas de gerbe de confettis. C'est une
+ * confirmation, pas une récompense : elle doit se remarquer une fois et ne jamais
+ * lasser à la centième.
+ *
+ * <p>Les trajectoires sont dérivées de l'index de chaque goutte plutôt que tirées au
+ * hasard : deux réactions de suite donnent la même pluie, ce qui la rend familière au
+ * lieu de la faire paraître erratique. Aucun tirage aléatoire n'est nécessaire pour
+ * que ce soit joli.
+ *
+ * <p>Le composable n'intercepte aucun geste : il n'a pas de `pointerInput`, les taps
+ * traversent donc jusqu'au texte du chapitre.
+ */
+@Composable
+fun EmojiRain(emoji: String, onDone: () -> Unit, modifier: Modifier = Modifier) {
+    val progress = remember(emoji) { Animatable(0f) }
+    val drops = remember {
+        List(DROP_COUNT) { index ->
+            RainDrop(
+                // Réparties sur la largeur, avec un léger décalage propre à chacune
+                // pour éviter l'alignement en peigne.
+                xFraction = (index + 0.5f) / DROP_COUNT + ((index * 7 % 5) - 2) * 0.018f,
+                delay = (index * 13 % 7) * 0.055f,
+                size = 17 + (index * 5 % 3) * 5,
+            )
+        }
+    }
+
+    LaunchedEffect(emoji) {
+        progress.snapTo(0f)
+        progress.animateTo(1f, tween(durationMillis = 1500, easing = LinearEasing))
+        onDone()
+    }
+
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val height = maxHeight
+        val width = maxWidth
+        drops.forEach { drop ->
+            // Chaque goutte parcourt sa propre fraction du temps total : celles qui
+            // partent en retard tombent donc un peu plus vite, et toutes ont disparu
+            // à la fin — aucune ne reste figée en bas de l'écran.
+            val local = ((progress.value - drop.delay) / (1f - drop.delay)).coerceIn(0f, 1f)
+            if (local <= 0f) return@forEach
+
+            val fade = when {
+                local < 0.12f -> local / 0.12f            // apparition
+                local > 0.72f -> (1f - local) / 0.28f     // effacement avant le bas
+                else -> 1f
+            }
+            Text(
+                text = emoji,
+                fontSize = drop.size.sp,
+                modifier = Modifier
+                    .offset(
+                        x = width * drop.xFraction - (drop.size / 2).dp,
+                        y = height * local - 30.dp,
+                    )
+                    // `Modifier.alpha` agit sur la couche entière, donc aussi sur un
+                    // emoji : la couleur du texte, elle, n'a aucun effet sur un glyphe
+                    // en couleurs.
+                    .alpha(fade),
+            )
+        }
+    }
+}
+
+/** Assez pour que ça se voie, assez peu pour que ça reste sobre. */
+private const val DROP_COUNT = 9

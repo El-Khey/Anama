@@ -30,8 +30,12 @@ class PassageRepository(private val passageApi: PassageApi) {
         blockIndex: Int,
         body: String,
         spoiler: Boolean,
+        parentId: Long? = null,
     ): ApiResult<PassageCommentDto> = safeApiCall {
-        passageApi.comment(chapterId, CreatePassageCommentRequestDto(blockIndex, body, spoiler))
+        passageApi.comment(
+            chapterId,
+            CreatePassageCommentRequestDto(blockIndex, body, spoiler, parentId),
+        )
     }
 
     suspend fun react(

@@ -628,6 +628,8 @@ fun ReaderScreen(
                     if (text != null) quoteViewModel.start(lastThreadBlock, text)
                 },
                 onDelete = passageViewModel::delete,
+                onReply = passageViewModel::startReply,
+                onCancelReply = passageViewModel::cancelReply,
                 onDraftChange = passageViewModel::setDraft,
                 onToggleSpoiler = passageViewModel::toggleSpoiler,
                 onSend = passageViewModel::send,
@@ -660,6 +662,13 @@ fun ReaderScreen(
                 onConfirm = quoteViewModel::save,
                 onDismiss = quoteViewModel::cancel,
             )
+        }
+
+        // Accusé de réception d'une réaction : le panneau vient de se refermer, il
+        // faut bien que le geste laisse une trace. Posée en DERNIER dans le Box, donc
+        // au-dessus de tout — elle n'écoute aucun geste, les taps la traversent.
+        passages.celebration?.let { emoji ->
+            EmojiRain(emoji = emoji, onDone = passageViewModel::celebrationShown)
         }
 
         // Confirmation fugace : une citation est un geste discret, elle ne mérite ni

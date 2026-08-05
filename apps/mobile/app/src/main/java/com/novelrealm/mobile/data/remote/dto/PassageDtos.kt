@@ -44,7 +44,12 @@ data class ChapterActivityDto(
     val orphanedComments: Long = 0,
 )
 
-/** Un message accroché à un passage. */
+/**
+ * Un message accroché à un passage.
+ *
+ * `replies` n'est rempli que sur les messages racines : l'arbre ne descend jamais
+ * au-delà d'un niveau, une réponse porte donc toujours une liste vide.
+ */
 @Serializable
 data class PassageCommentDto(
     val id: Long,
@@ -55,6 +60,7 @@ data class PassageCommentDto(
     val spoiler: Boolean = false,
     val mine: Boolean = false,
     val createdAt: String? = null,
+    val replies: List<PassageCommentDto> = emptyList(),
 )
 
 /**
@@ -70,6 +76,8 @@ data class CreatePassageCommentRequestDto(
     val blockIndex: Int,
     val body: String,
     val spoiler: Boolean,
+    /** Message auquel on répond, ou `null` pour ouvrir un fil. */
+    val parentId: Long? = null,
 )
 
 /**

@@ -26,6 +26,13 @@ data class PassageSocialUiState(
     val draft: String = "",
     val spoiler: Boolean = false,
     val isSending: Boolean = false,
+    /** Message auquel on répond, ou `null` pour ouvrir un fil. */
+    val replyTo: PassageCommentDto? = null,
+    /**
+     * Emoji dont il faut jouer la pluie, une fois. Consommé par l'écran puis remis à
+     * `null` — sans quoi la moindre recomposition la relancerait.
+     */
+    val celebration: String? = null,
     /** Erreur d'une action ponctuelle — n'efface jamais ce qui est déjà affiché. */
     val error: String? = null,
 ) {
@@ -89,6 +96,12 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
             when (val result = passageRepo.react(chapterId, blockIndex, emoji)) {
                 is ApiResult.Success -> _state.update { current ->
                     val updated = result.data
+                    // Le panneau se referme et l'emoji pleut : le geste est terminé, et
+                    // la pluie remplace le compteur qu'on ne verra plus.
+                    //
+                    // Rien ne pleut si la réaction a été RETIRÉE (le serveur ne renvoie
+                    // alors plus d'emoji à soi) : fêter un renoncement n'aurait aucun sens.
+                    val posted = updated.myEmoji == emoji
                     val previous = current.activity[blockIndex]
                     val merged = (previous ?: BlockActivityDto(blockIndex = blockIndex)).copy(
                         blockIndex = blockIndex,
@@ -103,7 +116,14 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
                         } else {
                             current.activity + (blockIndex to merged)
                         }
-                    current.copy(activity = activity)
+                    current.copy(
+                        activity = activity,
+                        threadBlock = null,
+                        thread = emptyList(),
+                        draft = "",
+                        replyTo = null,
+                        celebration = if (posted) emoji else null,
+                    )
                 }
                 is ApiResult.Error -> _state.update { it.copy(error = result.userMessage()) }
             }
@@ -133,8 +153,28 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
     }
 
     fun closeThread() = _state.update {
-        it.copy(threadBlock = null, thread = emptyList(), draft = "", spoiler = false)
+        it.copy(
+            threadBlock = null,
+            thread = emptyList(),
+            draft = "",
+            spoiler = false,
+            replyTo = null,
+        )
     }
+
+    fun celebrationShown() = _state.update { it.copy(celebration = null) }
+
+    // ── Réponses ──────────────────────────────────────────────────────────────
+
+    /**
+     * Vise un message. On peut viser une réponse : le serveur re-rattachera au fil
+     * racine plutôt que de refuser, parce que du point de vue du lecteur le geste est
+     * le même.
+     */
+    fun startReply(comment: PassageCommentDto) =
+        _state.update { it.copy(replyTo = comment, error = null) }
+
+    fun cancelReply() = _state.update { it.copy(replyTo = null) }
 
     // ── Rédaction ─────────────────────────────────────────────────────────────
 
@@ -154,18 +194,24 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
                 blockIndex = blockIndex,
                 body = current.draft.trim(),
                 spoiler = current.spoiler,
+                parentId = current.replyTo?.id,
             )
             when (result) {
-                is ApiResult.Success -> _state.update {
-                    it.copy(
-                        isSending = false,
-                        draft = "",
-                        spoiler = false,
-                        // Ajouté en fin de fil : il est trié du plus ancien au plus
-                        // récent, le nouveau message est donc bien le dernier.
-                        thread = it.thread + result.data,
-                        activity = it.activity.bump(blockIndex, by = 1),
-                    )
+                is ApiResult.Success -> {
+                    _state.update {
+                        it.copy(
+                            isSending = false,
+                            draft = "",
+                            spoiler = false,
+                            replyTo = null,
+                            activity = it.activity.bump(blockIndex, by = 1),
+                        )
+                    }
+                    // Le fil est rechargé plutôt que reconstruit ici. Insérer une
+                    // réponse au bon endroit obligerait à rejouer localement la règle
+                    // de re-rattachement du serveur — répondre à une réponse remonte
+                    // d'un cran — et le moindre écart afficherait un arbre faux.
+                    refreshThread(blockIndex)
                 }
                 is ApiResult.Error -> _state.update {
                     it.copy(isSending = false, error = result.userMessage())
@@ -178,11 +224,18 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
         val blockIndex = _state.value.threadBlock ?: return
         viewModelScope.launch {
             when (val result = passageRepo.delete(comment.id)) {
-                is ApiResult.Success -> _state.update {
-                    it.copy(
-                        thread = it.thread.filterNot { row -> row.id == comment.id },
-                        activity = it.activity.bump(blockIndex, by = -1),
-                    )
+                is ApiResult.Success -> {
+                    // Supprimer un message racine emporte ses réponses côté serveur :
+                    // le compteur baisse d'autant, et seul un rechargement le sait.
+                    _state.update {
+                        it.copy(
+                            activity = it.activity.bump(
+                                blockIndex,
+                                by = -(1 + comment.replies.size),
+                            ),
+                        )
+                    }
+                    refreshThread(blockIndex)
                 }
                 is ApiResult.Error -> _state.update { it.copy(error = result.userMessage()) }
             }
@@ -190,6 +243,15 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
     }
 
     fun errorShown() = _state.update { it.copy(error = null) }
+
+    /** Recharge le fil sans vider l'affichage : on corrige, on ne fait pas clignoter. */
+    private fun refreshThread(blockIndex: Int) {
+        viewModelScope.launch {
+            (passageRepo.thread(chapterId, blockIndex) as? ApiResult.Success)?.let { result ->
+                _state.update { it.copy(thread = result.data) }
+            }
+        }
+    }
 
 }
 
