@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Comment
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FormatAlignJustify
@@ -200,6 +201,25 @@ fun ReaderSettingsSheet(
                     label = "Plein écran",
                     active = prefs.fullscreen,
                     onClick = { onUpdate { it.copy(fullscreen = !it.fullscreen) } },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            // Doublé ici alors que le réglage vit aussi dans Profil › Lecture, et pour
+            // une raison précise : c'est en lisant qu'on se rend compte que les marques
+            // dérangent. Obliger à quitter le chapitre pour les couper, c'est garantir
+            // qu'on ne le fera pas. Même préférence, même compte, deux accès.
+            SheetLabel("Discussions")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+            ) {
+                ToggleChip(
+                    icon = Icons.AutoMirrored.Filled.Comment,
+                    label = "Commentaires dans le texte",
+                    active = prefs.inTextComments,
+                    onClick = { onUpdate { it.copy(inTextComments = !it.inTextComments) } },
                     modifier = Modifier.weight(1f),
                 )
             }

@@ -88,6 +88,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.novelrealm.mobile.data.remote.dto.BlockActivityDto
 import com.novelrealm.mobile.data.remote.dto.ChapterCommentDto
 import com.novelrealm.mobile.data.remote.dto.ChapterDetailDto
 import com.novelrealm.mobile.data.remote.dto.ChapterDto
@@ -113,6 +114,24 @@ private val SwipeMaxTravel = 140.dp
 
 /** Vitesse de lecture retenue pour l'estimation de durée (mots par minute). */
 private const val WordsPerMinute = 220
+
+/**
+ * Découpe un chapitre en blocs, exactement comme `ChapterBlocks.split` côté serveur :
+ * une ligne non vide, débarrassée de ses espaces de bord.
+ *
+ * **Les deux règles DOIVENT rester identiques**, sinon l'index d'un bloc ne désigne pas
+ * le même texte de part et d'autre — une citation ou un commentaire s'accrocherait au
+ * mauvais paragraphe. Toute évolution se fait ici ET dans `ChapterBlocks`, dans le même
+ * commit.
+ *
+ * Le repli sur le contenu brut ne concerne que l'affichage : un chapitre sans aucune
+ * ligne exploitable doit quand même se lire.
+ */
+private fun readerBlocks(content: String): List<String> =
+    content.split('\n')
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .ifEmpty { listOf(content) }
 
 // Lecteur de chapitre (#35), UX façon Mihon : texte plein écran, un tap fait apparaître /
 // disparaître les barres (titre + réglages + signet en haut ; précédent / slider / suivant
@@ -154,6 +173,25 @@ fun ReaderScreen(
     val quote by quoteViewModel.state.collectAsState()
     val quotingBlock = quote.blockIndex
 
+    // Réactions et commentaires de passage (#41, §4). État séparé lui aussi : les
+    // agrégats vivent le temps d'un chapitre, la citation le temps d'un geste.
+    val passageViewModel: PassageSocialViewModel = viewModel(
+        key = "passages-$commentsChapterId",
+        factory = vmFactory { PassageSocialViewModel(commentsChapterId) },
+    )
+    val passages by passageViewModel.state.collectAsState()
+
+    // Texte du bloc dont le panneau est ouvert. Il n'est plus AFFICHÉ — le passage est
+    // juste derrière, à l'écran — mais « Citer » en a besoin. Même découpage que le
+    // lecteur, donc même index : c'est toute la raison d'avoir factorisé la règle.
+    val chapterBlocks = remember(state.chapter?.content) {
+        state.chapter?.content?.let { readerBlocks(it) } ?: emptyList()
+    }
+    var lastThreadBlock by remember(commentsChapterId) { mutableIntStateOf(-1) }
+    LaunchedEffect(passages.threadBlock) {
+        passages.threadBlock?.let { lastThreadBlock = it }
+    }
+
     // Position verticale de chaque bloc dans la page, relevée à la mise en page :
     // c'est ce qui permet de se rendre à un passage précis sans le chercher.
     val blockOffsets = remember(state.chapter?.id) { mutableStateMapOf<Int, Int>() }
@@ -181,7 +219,8 @@ fun ReaderScreen(
     // Mode plein écran : masque les barres système, rendues à nouveau visibles quand
     // les commandes du lecteur sont affichées (un tap) ou à la sortie de l'écran.
     val chromeOrSettings =
-        chromeVisible || settingsVisible || comments.composerOpen || quotingBlock != null
+        chromeVisible || settingsVisible || comments.composerOpen || quotingBlock != null ||
+            passages.threadBlock != null
     DisposableEffect(readerPrefs.reader.fullscreen, chromeOrSettings) {
         val window = (view.context as? android.app.Activity)?.window
         val controller = window?.let { WindowInsetsControllerCompat(it, view) }
@@ -257,6 +296,7 @@ fun ReaderScreen(
             settingsVisible -> settingsVisible = false
             comments.composerOpen -> commentsViewModel.closeComposer()
             quotingBlock != null -> quoteViewModel.cancel()
+            passages.threadBlock != null -> passageViewModel.closeThread()
             else -> chromeVisible = !chromeVisible
         }
     }
@@ -306,7 +346,7 @@ fun ReaderScreen(
                             // Les panneaux ont leurs propres gestes (curseurs, saisie) :
                             // un balayage dessus ne doit pas changer de chapitre.
                             enabled = !settingsVisible && !comments.composerOpen &&
-                                quotingBlock == null,
+                                quotingBlock == null && passages.threadBlock == null,
                             state = rememberDraggableState { delta ->
                                 // Le texte suit le doigt au millimètre du côté où il y a
                                 // un chapitre ; de l'autre il « bute » (élastique très
@@ -360,7 +400,10 @@ fun ReaderScreen(
                             }
                         },
                         onSurfaceTap = onSurfaceTap,
-                        onQuoteBlock = quoteViewModel::start,
+                        onSelectBlock = { index, _ -> passageViewModel.openThread(index) },
+                        activity = passages.activity,
+                        showInTextComments = readerPrefs.reader.inTextComments,
+                        onOpenThread = passageViewModel::openThread,
                         modifier = Modifier
                             .fillMaxSize()
                             .offset { IntOffset(swipeOffset.roundToInt(), 0) }
@@ -553,6 +596,45 @@ fun ReaderScreen(
             )
         }
 
+        // ── Panneau d'un passage : réactions + discussion + saisie (#41, §4) ──
+        val threadBlock = passages.threadBlock
+        AnimatedVisibility(
+            visible = threadBlock != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            SheetScrim(
+                onDismiss = passageViewModel::closeThread,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        AnimatedVisibility(
+            visible = threadBlock != null,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            val block = passages.activity[lastThreadBlock]
+            PassageThreadSheet(
+                state = passages,
+                reactions = block?.reactions.orEmpty(),
+                myEmoji = block?.myEmoji,
+                showComments = readerPrefs.reader.inTextComments,
+                onReact = passageViewModel::react,
+                onQuote = {
+                    val text = chapterBlocks.getOrNull(lastThreadBlock)
+                    passageViewModel.closeThread()
+                    if (text != null) quoteViewModel.start(lastThreadBlock, text)
+                },
+                onDelete = passageViewModel::delete,
+                onDraftChange = passageViewModel::setDraft,
+                onToggleSpoiler = passageViewModel::toggleSpoiler,
+                onSend = passageViewModel::send,
+                onClose = passageViewModel::closeThread,
+            )
+        }
+
         // ── Créer une citation (#41, §3) ──
         AnimatedVisibility(
             visible = quotingBlock != null,
@@ -634,17 +716,15 @@ private fun ChapterBody(
     highlightAlpha: Float,
     onBlockOffset: (index: Int, y: Int) -> Unit,
     onSurfaceTap: () -> Unit,
-    onQuoteBlock: (index: Int, text: String) -> Unit,
+    onSelectBlock: (index: Int, text: String) -> Unit,
+    activity: Map<Int, BlockActivityDto>,
+    showInTextComments: Boolean,
+    onOpenThread: (index: Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Le texte est découpé en paragraphes pour pouvoir appliquer l'écart réglable entre
     // eux (un seul bloc de texte ne le permettrait pas).
-    val paragraphs = remember(chapter.content) {
-        chapter.content.split('\n')
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .ifEmpty { listOf(chapter.content) }
-    }
+    val paragraphs = remember(chapter.content) { readerBlocks(chapter.content) }
     val wordCount = remember(chapter.content) {
         chapter.content.split(' ', '\n', '\t').count { it.isNotBlank() }
     }
@@ -664,37 +744,56 @@ private fun ChapterBody(
         paragraphs.forEachIndexed { index, paragraph ->
             if (index > 0) Spacer(Modifier.height(style.paragraphSpacing))
             val highlighted = index == highlightedBlock && highlightAlpha > 0.01f
-            Text(
-                text = paragraph,
-                style = style.textStyle,
-                color = style.foreground,
+            // Le paragraphe est enveloppé pour pouvoir porter sa marque d'activité en
+            // dessous. C'est donc l'ENVELOPPE qui relève sa position : mesurée sur le
+            // texte, `positionInParent` donnerait sa place dans cette enveloppe (zéro)
+            // et non dans la colonne défilante — « aller au passage » ne défilerait
+            // plus nulle part.
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    // `positionInParent` donne la position DANS la colonne défilante :
-                    // c'est directement la cible d'un `scrollTo`.
                     .onGloballyPositioned { coordinates ->
                         onBlockOffset(index, coordinates.positionInParent().y.roundToInt())
-                    }
-                    .then(
-                        if (highlighted) {
-                            Modifier.background(
-                                color = highlightColor.copy(alpha = 0.20f * highlightAlpha),
-                                shape = RoundedCornerShape(6.dp),
+                    },
+            ) {
+                Text(
+                    text = paragraph,
+                    style = style.textStyle,
+                    color = style.foreground,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (highlighted) {
+                                Modifier.background(
+                                    color = highlightColor.copy(alpha = 0.20f * highlightAlpha),
+                                    shape = RoundedCornerShape(6.dp),
+                                )
+                            } else {
+                                Modifier
+                            },
+                        )
+                        // Le paragraphe intercepte ses propres gestes : il doit donc
+                        // reproduire le tap de la page, sinon les barres ne réagiraient
+                        // plus qu'entre les paragraphes.
+                        .pointerInput(index) {
+                            detectTapGestures(
+                                onTap = { onSurfaceTap() },
+                                onLongPress = { onSelectBlock(index, paragraph) },
                             )
-                        } else {
-                            Modifier
+                        },
+                )
+                activity[index]?.let { blockActivity ->
+                    BlockMark(
+                        activity = blockActivity,
+                        foreground = style.foreground,
+                        showComments = showInTextComments,
+                        onClick = {
+                            if (showInTextComments) onOpenThread(index)
+                            else onSelectBlock(index, paragraph)
                         },
                     )
-                    // Le paragraphe intercepte ses propres gestes : il doit donc
-                    // reproduire le tap de la page, sinon les barres ne réagiraient
-                    // plus qu'entre les paragraphes.
-                    .pointerInput(index) {
-                        detectTapGestures(
-                            onTap = { onSurfaceTap() },
-                            onLongPress = { onQuoteBlock(index, paragraph) },
-                        )
-                    },
-            )
+                }
+            }
         }
 
         Spacer(Modifier.height(44.dp))
