@@ -24,14 +24,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.outlined.Comment
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -47,6 +48,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -451,6 +453,18 @@ private fun Avatar(url: String?, pseudo: String?, foreground: Color) {
  *
  * Il reprend l'habillage Material des autres panneaux du lecteur (réglages) plutôt que
  * les couleurs de lecture : c'est une surface flottante, pas un morceau de la page.
+ *
+ * <p><b>Sur le placement vertical.</b> Le panneau ne pose qu'un seul retrait bas, égal
+ * à `max(clavier, barre de navigation)`. Deux pièges ont été écartés ici :
+ * <ul>
+ *   <li>`imePadding()` suivi de `navigationBarsPadding()` ADDITIONNE les deux marges —
+ *       clavier ouvert, une bande vide de la hauteur de la barre système s'ouvrait sous
+ *       le champ ;</li>
+ *   <li>et surtout, ce retrait ne vaut que si la fenêtre est REDIMENSIONNÉE par le
+ *       clavier. Sans `windowSoftInputMode="adjustResize"` au manifeste, Android
+ *       déplaçait la fenêtre entière et notre marge s'ajoutait à ce déplacement : le
+ *       panneau sortait par le haut de l'écran. Les deux vont ensemble.</li>
+ * </ul>
  */
 @Composable
 fun CommentComposerSheet(
@@ -468,9 +482,9 @@ fun CommentComposerSheet(
 
     Surface(
         color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         tonalElevation = 6.dp,
-        shadowElevation = 12.dp,
+        shadowElevation = 16.dp,
         modifier = modifier
             .fillMaxWidth()
             // Absorbe les taps : sans ça, toucher le panneau basculerait les barres du
@@ -483,12 +497,8 @@ fun CommentComposerSheet(
     ) {
         Column(
             modifier = Modifier
-                // UN SEUL retrait bas, valant max(clavier, barre de navigation).
-                // `imePadding()` suivi de `navigationBarsPadding()` ADDITIONNE les deux :
-                // clavier ouvert, on gagnait une bande vide de la hauteur de la barre
-                // système entre le champ et le clavier.
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = 14.dp)
                 .padding(top = 10.dp, bottom = 12.dp),
         ) {
             // Poignée, comme sur le panneau de réglages : les deux panneaux du lecteur
@@ -515,12 +525,21 @@ fun CommentComposerSheet(
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 6.dp),
                 )
-                TextAction(
-                    label = "Annuler",
-                    onClick = onClose,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                // Une croix plutôt que le mot « Annuler » : elle occupe le coin où on la
+                // cherche et ne concurrence pas le bouton d'envoi du regard.
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "Fermer",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .clickable(onClick = onClose)
+                        .padding(8.dp)
+                        .size(18.dp),
                 )
             }
 
@@ -531,35 +550,19 @@ fun CommentComposerSheet(
                     text = actionError,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(start = 6.dp),
                 )
             }
 
             Spacer(Modifier.height(10.dp))
-            Row(verticalAlignment = Alignment.Bottom) {
-                OutlinedTextField(
-                    value = state.draft,
-                    // La limite est tenue à la saisie, et pas seulement par le serveur :
-                    // découvrir au moment d'envoyer qu'on a écrit 200 caractères de trop
-                    // est la pire façon de l'apprendre.
-                    onValueChange = { if (it.length <= MaxCommentLength) onDraftChange(it) },
-                    placeholder = { Text("Écris ton message…") },
-                    shape = RoundedCornerShape(22.dp),
-                    // Le champ grandit avec le texte, puis défile sur lui-même. Sans
-                    // plafond, un long message poussait le panneau sur tout l'écran.
-                    maxLines = 5,
-                    textStyle = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(max = 152.dp)
-                        .focusRequester(focusRequester),
-                )
-                Spacer(Modifier.width(10.dp))
-                SendButton(
-                    enabled = state.canSend,
-                    sending = state.isSending,
-                    onClick = onSend,
-                )
-            }
+            ComposerInputRow(
+                draft = state.draft,
+                canSend = state.canSend,
+                isSending = state.isSending,
+                focusRequester = focusRequester,
+                onDraftChange = onDraftChange,
+                onSend = onSend,
+            )
 
             // Le compteur n'apparaît qu'à l'approche de la limite : affiché en
             // permanence, il ne ferait que meubler.
@@ -573,7 +576,11 @@ fun CommentComposerSheet(
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
-                    modifier = Modifier.align(Alignment.End),
+                    // 46 dp de bouton + 10 dp d'écart : le compteur s'aligne ainsi sur
+                    // le bord droit de la bulle, et non sur celui du bouton d'envoi.
+                    modifier = Modifier
+                        .align(Alignment.End)
+                        .padding(end = 56.dp),
                 )
             }
         }
@@ -581,11 +588,80 @@ fun CommentComposerSheet(
 }
 
 /**
+ * La ligne de saisie : une bulle qui grandit, et le bouton d'envoi à côté.
+ *
+ * <p><b>Pourquoi une bulle maison et pas un `OutlinedTextField`.</b> Ce dernier impose
+ * une hauteur minimale de 56 dp et des marges internes prévues pour un libellé
+ * flottant ; sur une seule ligne de texte, le curseur se retrouvait haut dans un cadre
+ * trop grand, et le bouton d'envoi — aligné sur le bas — semblait décalé. Un
+ * [BasicTextField] dans une surface arrondie qu'on dimensionne soi-même donne
+ * exactement la hauteur voulue.
+ *
+ * <p><b>Pourquoi les deux partagent le même bas.</b> La bulle a la hauteur minimale du
+ * bouton (46 dp) et la ligne est alignée sur `Bottom` : à une ligne, les deux sont
+ * parfaitement côte à côte ; quand le texte s'allonge, la bulle grandit vers le haut et
+ * leurs bases restent alignées. Il n'existe donc aucun état où l'un flotte à côté de
+ * l'autre.
+ */
+@Composable
+private fun ComposerInputRow(
+    draft: String,
+    canSend: Boolean,
+    isSending: Boolean,
+    focusRequester: FocusRequester,
+    onDraftChange: (String) -> Unit,
+    onSend: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.Bottom) {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+            shape = RoundedCornerShape(23.dp),
+            modifier = Modifier
+                .weight(1f)
+                // Le champ grandit avec le texte puis défile sur lui-même : sans
+                // plafond, un long message pousserait le panneau sur tout l'écran.
+                .heightIn(min = 46.dp, max = 148.dp),
+        ) {
+            Box(
+                contentAlignment = Alignment.CenterStart,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                if (draft.isEmpty()) {
+                    Text(
+                        text = "Écris ton message…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    )
+                }
+                BasicTextField(
+                    value = draft,
+                    // La limite est tenue à la saisie, et pas seulement par le serveur :
+                    // découvrir au moment d'envoyer qu'on a écrit 200 caractères de trop
+                    // est la pire façon de l'apprendre.
+                    onValueChange = { if (it.length <= MaxCommentLength) onDraftChange(it) },
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    maxLines = 6,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester),
+                )
+            }
+        }
+
+        Spacer(Modifier.width(10.dp))
+        SendButton(enabled = canSend, sending = isSending, onClick = onSend)
+    }
+}
+
+/**
  * Bouton d'envoi : un **disque plein** de 46 dp, et non une icône nue.
  *
- * Aligné sur le bas du champ, une icône seule flottait dans le vide dès que le texte
- * dépassait une ligne — c'est ce qui donnait l'impression d'un bouton décentré. Un
- * disque a un bord : il se cale visuellement sur celui du champ.
+ * Une icône seule n'a pas de bord : rien ne la cale sur celui de la bulle, et elle
+ * paraissait flotter. Un disque de la hauteur exacte du champ à une ligne se lit
+ * comme sa continuation.
  */
 @Composable
 private fun SendButton(enabled: Boolean, sending: Boolean, onClick: () -> Unit) {

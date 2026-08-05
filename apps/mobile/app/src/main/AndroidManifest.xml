@@ -15,10 +15,25 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.NovelRealm">
+        <!--
+            adjustResize n'est pas décoratif : c'est lui qui rend les insets fiables.
+
+            L'app est en edge-to-edge (enableEdgeToEdge dans MainActivity) et cale ses
+            panneaux de saisie sur l'inset du clavier. Sans cette déclaration, le mode
+            par défaut (adjustUnspecified) laisse le système choisir, et il choisit
+            adjustPan : la fenêtre ENTIÈRE glisse vers le haut. Le panneau de rédaction
+            ajoutait alors sa propre marge de clavier par-dessus ce décalage déjà
+            appliqué — son en-tête sortait par le haut de l'écran, et une bande vide de
+            la hauteur exacte du clavier s'ouvrait entre le champ et le clavier.
+
+            adjustResize redimensionne au lieu de déplacer : l'inset redevient la seule
+            source de vérité, et la marge du panneau redevient juste.
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.NovelRealm">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

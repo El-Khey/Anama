@@ -22,11 +22,22 @@ interface QuoteApi {
         @Body body: CreateQuoteRequestDto,
     ): QuoteDto
 
-    /** `novelId` filtre sur un roman, `q` cherche dans le texte cité. */
+    /**
+     * La collection, filtrée et triée **par le serveur**.
+     *
+     * La liste est paginée : filtrer ou trier côté app ne porterait que sur la page
+     * déjà reçue — chercher un mot ne le trouverait que parmi les vingt dernières
+     * citations chargées, et « plus anciennes d'abord » ne réordonnerait que celles-là.
+     *
+     * `novelId` restreint à un roman, `q` cherche dans le texte cité, `sort` vaut
+     * `recent` ou `oldest`, `days` ne garde que les N derniers jours (0 = tout).
+     */
     @GET("api/me/quotes")
     suspend fun list(
         @Query("novelId") novelId: Long? = null,
         @Query("q") query: String? = null,
+        @Query("sort") sort: String = "recent",
+        @Query("days") days: Int = 0,
         @Query("page") page: Int = 0,
         @Query("size") size: Int = 20,
     ): PageDto<QuoteDto>

@@ -25,12 +25,21 @@ class QuoteRepository(private val quoteApi: QuoteApi) {
         quoteApi.create(chapterId, CreateQuoteRequestDto(blockIndex, startOffset, endOffset))
     }
 
+    /** [sort] : `recent` ou `oldest`. [days] : 0 = depuis toujours. */
     suspend fun list(
         novelId: Long?,
         query: String?,
+        sort: String,
+        days: Int,
         page: Int,
     ): ApiResult<PageDto<QuoteDto>> = safeApiCall {
-        quoteApi.list(novelId = novelId, query = query?.takeIf { it.isNotBlank() }, page = page)
+        quoteApi.list(
+            novelId = novelId,
+            query = query?.takeIf { it.isNotBlank() },
+            sort = sort,
+            days = days,
+            page = page,
+        )
     }
 
     suspend fun counts(): ApiResult<List<NovelQuoteCountDto>> = safeApiCall { quoteApi.counts() }
