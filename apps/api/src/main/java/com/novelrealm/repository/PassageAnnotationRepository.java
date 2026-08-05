@@ -6,6 +6,7 @@ import java.util.Optional;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -95,8 +96,98 @@ public interface PassageAnnotationRepository extends JpaRepository<PassageAnnota
             """)
     List<NovelQuoteCount> countQuotesByNovel(@Param("userId") Long userId);
 
-    /** Une citation de cet utilisateur, pour la résoudre ou la supprimer. */
+    /** Une annotation de cet utilisateur, pour la résoudre ou la supprimer. */
     Optional<PassageAnnotation> findByIdAndUser_Id(Long id, Long userId);
+
+    // ── Activité d'un chapitre (#41, §4) ──────────────────────────────────────
+
+    /**
+     * Réactions du chapitre, comptées par bloc et par emoji, avec la mienne repérée.
+     *
+     * <p><b>Un décompte par emoji, pas une ligne par réaction.</b> Un chapitre
+     * populaire porterait des milliers de réactions ; le lecteur, lui, n'a besoin que
+     * de « ce bloc a 12 ❤️ ». L'agrégation se fait donc en base.
+     *
+     * <p>Le regroupement inclut {@code textHash} parce que deux annotations posées sur
+     * le même index peuvent viser des textes différents — le chapitre a pu être
+     * ré-ingéré entre les deux. C'est le couple (index, empreinte) qui identifie un
+     * passage, pas l'index seul ; le service s'en sert pour résoudre les ancres.
+     */
+    @Query("""
+            select a.blockIndex as blockIndex,
+                   a.textHash   as textHash,
+                   a.emoji      as emoji,
+                   count(a)     as total,
+                   sum(case when a.user.id = :userId then 1 else 0 end) as mine
+            from PassageAnnotation a
+            where a.chapter.id = :chapterId
+              and a.kind = com.novelrealm.model.PassageAnnotation$Kind.REACTION
+            group by a.blockIndex, a.textHash, a.emoji
+            """)
+    List<ReactionTally> tallyReactions(
+            @Param("chapterId") Long chapterId,
+            @Param("userId") Long userId);
+
+    /** Nombre de commentaires par passage. Même regroupement, même raison. */
+    @Query("""
+            select a.blockIndex as blockIndex,
+                   a.textHash   as textHash,
+                   count(a)     as total
+            from PassageAnnotation a
+            where a.chapter.id = :chapterId
+              and a.kind = com.novelrealm.model.PassageAnnotation$Kind.COMMENT
+            group by a.blockIndex, a.textHash
+            """)
+    List<CommentTally> tallyComments(@Param("chapterId") Long chapterId);
+
+    /**
+     * Le fil d'un passage, du plus ancien au plus récent — une discussion se lit dans
+     * l'ordre où elle s'est tenue.
+     *
+     * <p><b>Interrogé par empreinte, pas par index de bloc.</b> C'est la conséquence
+     * directe du §2 : l'index se décale dès qu'un chapitre est ré-ingéré, et un fil
+     * cherché à l'index reviendrait alors vide alors que les messages sont toujours
+     * là. L'empreinte suit le texte. Le service écarte ensuite les rares homonymes —
+     * deux blocs identiques dans un même chapitre — en résolvant chaque ancre.
+     *
+     * <p>Non paginé, volontairement : un fil accroché à une seule ligne de texte n'a
+     * pas la taille d'un fil de fin de chapitre. Le jour où ce ne serait plus vrai,
+     * c'est la signature qui changerait, pas l'écran.
+     *
+     * <p>{@code @EntityGraph} sur l'auteur : sans lui, afficher dix messages coûterait
+     * dix requêtes de plus pour dix pseudos.
+     */
+    @EntityGraph(attributePaths = "user")
+    @Query("""
+            select a from PassageAnnotation a
+            where a.chapter.id = :chapterId
+              and a.textHash = :textHash
+              and a.kind = com.novelrealm.model.PassageAnnotation$Kind.COMMENT
+            order by a.createdAt asc
+            """)
+    List<PassageAnnotation> findThread(
+            @Param("chapterId") Long chapterId,
+            @Param("textHash") String textHash);
+
+    /**
+     * Ma réaction sur ce passage, s'il y en a une — il ne peut y en avoir qu'une, la
+     * base le garantit. Repérée par empreinte pour la même raison que le fil.
+     */
+    @Query("""
+            select a from PassageAnnotation a
+            where a.chapter.id = :chapterId
+              and a.textHash = :textHash
+              and a.user.id = :userId
+              and a.kind = com.novelrealm.model.PassageAnnotation$Kind.REACTION
+            """)
+    Optional<PassageAnnotation> findMyReaction(
+            @Param("chapterId") Long chapterId,
+            @Param("textHash") String textHash,
+            @Param("userId") Long userId);
+
+    /** Anti-rafale : ai-je écrit un commentaire de passage tout récemment ? */
+    boolean existsByUser_IdAndKindAndCreatedAtAfter(
+            Long userId, PassageAnnotation.Kind kind, Instant since);
 
     /** Projection d'une carte de la page « Mes citations » (sans le texte du chapitre). */
     interface QuoteView {
@@ -126,5 +217,28 @@ public interface PassageAnnotationRepository extends JpaRepository<PassageAnnota
         String getNovelTitle();
 
         long getCount();
+    }
+
+    /** Un emoji, sur un passage, et combien de fois — dont moi ou non. */
+    interface ReactionTally {
+        int getBlockIndex();
+
+        String getTextHash();
+
+        String getEmoji();
+
+        long getTotal();
+
+        /** 1 si j'ai posé cet emoji, 0 sinon — l'unicité en base garantit ces deux cas. */
+        long getMine();
+    }
+
+    /** Combien de commentaires sur un passage. */
+    interface CommentTally {
+        int getBlockIndex();
+
+        String getTextHash();
+
+        long getTotal();
     }
 }

@@ -41,6 +41,16 @@ public class PassageAnnotation {
     /** Longueur maximale d'un passage cité — une citation, pas un chapitre recopié. */
     public static final int MAX_QUOTED_LENGTH = 500;
 
+    /**
+     * Longueur maximale d'un commentaire de passage — moitié moins qu'un commentaire de
+     * fin de chapitre ({@code ChapterComment.MAX_BODY_LENGTH}).
+     *
+     * <p>Ce n'est pas de l'avarice : ces messages s'affichent dans un panneau accroché à
+     * une seule ligne du texte. On réagit à une réplique, on ne rédige pas une analyse —
+     * celle-ci a sa place en fin de chapitre.
+     */
+    public static final int MAX_BODY_LENGTH = 1_000;
+
     public enum Kind {
         /** Un emoji posé sur un passage. */
         REACTION,
@@ -124,6 +134,55 @@ public class PassageAnnotation {
         annotation.quotedText = quotedText;
         annotation.isPrivate = true;
         return annotation;
+    }
+
+    /**
+     * Un message public accroché à un bloc (#41, §4).
+     *
+     * <p>Les bornes intra-bloc restent à zéro : on commente <b>le bloc</b>, pas une
+     * sélection dedans. Citer vise une phrase précise parce qu'on la recopie ; réagir
+     * vise le moment, et le moment c'est le paragraphe.
+     */
+    public static PassageAnnotation comment(
+            Chapter chapter,
+            User user,
+            int blockIndex,
+            String textHash,
+            String body,
+            boolean isSpoiler) {
+        PassageAnnotation annotation = new PassageAnnotation();
+        annotation.chapter = chapter;
+        annotation.user = user;
+        annotation.blockIndex = blockIndex;
+        annotation.textHash = textHash;
+        annotation.kind = Kind.COMMENT;
+        annotation.body = body;
+        annotation.isSpoiler = isSpoiler;
+        annotation.isPrivate = false;
+        return annotation;
+    }
+
+    /** Un emoji posé sur un bloc (#41, §4). Public par nature : il sert à l'agrégat. */
+    public static PassageAnnotation reaction(
+            Chapter chapter,
+            User user,
+            int blockIndex,
+            String textHash,
+            String emoji) {
+        PassageAnnotation annotation = new PassageAnnotation();
+        annotation.chapter = chapter;
+        annotation.user = user;
+        annotation.blockIndex = blockIndex;
+        annotation.textHash = textHash;
+        annotation.kind = Kind.REACTION;
+        annotation.emoji = emoji;
+        annotation.isPrivate = false;
+        return annotation;
+    }
+
+    /** Change l'emoji d'une réaction existante — voir {@code PassageService#react}. */
+    public void changeEmoji(String emoji) {
+        this.emoji = emoji;
     }
 
     @PrePersist

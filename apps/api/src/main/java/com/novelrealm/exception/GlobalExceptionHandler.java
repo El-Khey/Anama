@@ -166,6 +166,24 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
     }
 
+    @ExceptionHandler(PassageAnnotationNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handlePassageAnnotationNotFound(
+            PassageAnnotationNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.NOT_FOUND.value(), // 404
+                ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    /** Annotation de passage inexploitable (bloc absent, message vide, emoji inconnu). */
+    @ExceptionHandler(InvalidPassageException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidPassage(InvalidPassageException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.BAD_REQUEST.value(), // 400
+                ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
     @ExceptionHandler(ChapterAlreadyFavoritedException.class)
     public ResponseEntity<ErrorResponse> handleChapterAlreadyFavorited(ChapterAlreadyFavoritedException ex) {
         ErrorResponse error = new ErrorResponse(

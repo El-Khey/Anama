@@ -1,0 +1,339 @@
+package com.novelrealm.service;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.TreeMap;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.novelrealm.dto.BlockActivityResponse;
+import com.novelrealm.dto.ChapterActivityResponse;
+import com.novelrealm.dto.EmojiTallyResponse;
+import com.novelrealm.dto.PassageCommentResponse;
+import com.novelrealm.dto.PassageReactionResponse;
+import com.novelrealm.exception.CommentRateLimitedException;
+import com.novelrealm.exception.InvalidPassageException;
+import com.novelrealm.exception.PassageAnnotationNotFoundException;
+import com.novelrealm.model.Chapter;
+import com.novelrealm.model.PassageAnnotation;
+import com.novelrealm.model.User;
+import com.novelrealm.repository.PassageAnnotationRepository;
+
+/**
+ * Réactions et commentaires accrochés à un <b>passage</b> (#41, §4).
+ *
+ * <p>Trois décisions structurent ce service :
+ *
+ * <ul>
+ *   <li><b>Un seul appel d'agrégats par chapitre.</b> Un chapitre compte couramment
+ *       cinquante blocs et le lecteur les fait défiler d'un geste : demander l'activité
+ *       bloc par bloc serait intenable. Les compteurs de tout le chapitre partent à
+ *       l'ouverture ; un fil n'est chargé que si quelqu'un l'ouvre vraiment.</li>
+ *   <li><b>Le client ne connaît que des index vivants.</b> Il envoie « bloc 12 » au
+ *       sens de ce qu'il affiche, et reçoit des index recalés sur la version actuelle du
+ *       chapitre. Les empreintes ne sortent jamais de cette couche — l'app n'a pas à
+ *       savoir qu'elles existent.</li>
+ *   <li><b>Une ancre morte ne pointe jamais ailleurs.</b> Un message dont le passage a
+ *       disparu devient orphelin et se signale en fin de chapitre, plutôt que de
+ *       s'afficher sur un paragraphe qui n'est pas le sien.</li>
+ * </ul>
+ */
+@Service
+public class PassageSocialService {
+
+    /**
+     * Jeu d'emojis fermé (#41, §4).
+     *
+     * <p>Fermé pour deux raisons : l'agrégat reste trivial — six colonnes, pas un
+     * dictionnaire ouvert — et la marge du lecteur reste lisible. Un sélecteur complet
+     * produirait une longue traîne d'emojis vus une fois, qui n'apprend rien à personne.
+     *
+     * <p><b>Doit rester identique à {@code PassageEmojis} côté mobile.</b> L'ordre
+     * compte aussi : c'est lui qui fixe l'ordre d'affichage, pour que les emojis ne
+     * sautent pas de place quand les compteurs changent.
+     */
+    public static final List<String> ALLOWED_EMOJIS = List.of("❤️", "😂", "😮", "😢", "🔥", "💀");
+
+    /**
+     * Délai minimal entre deux commentaires de passage. Plus court que les 15 s de fin
+     * de chapitre : ces messages sont brefs, et on réagit parfois à deux répliques
+     * d'affilée. Il s'agit d'arrêter une rafale, pas de faire patienter un lecteur.
+     */
+    private static final Duration MIN_INTERVAL = Duration.ofSeconds(8);
+
+    private final PassageAnnotationRepository annotationRepository;
+    private final ChapterService chapterService;
+    private final UserService userService;
+
+    public PassageSocialService(
+            PassageAnnotationRepository annotationRepository,
+            ChapterService chapterService,
+            UserService userService) {
+        this.annotationRepository = annotationRepository;
+        this.chapterService = chapterService;
+        this.userService = userService;
+    }
+
+    // ── Lecture ───────────────────────────────────────────────────────────────
+
+    /**
+     * L'activité de tous les blocs d'un chapitre, ancres résolues, en un appel.
+     *
+     * <p>Le texte du chapitre est lu ici — c'est le prix de la résolution d'ancres, et
+     * il est modeste : une ligne, une fois par ouverture de chapitre, alors que l'app
+     * vient justement de charger le même texte pour l'afficher. Sans cette lecture, un
+     * chapitre ré-ingéré afficherait ses marques sur les mauvais paragraphes.
+     */
+    @Transactional(readOnly = true)
+    public ChapterActivityResponse activity(String email, Long chapterId) {
+        User user = userService.findByEmail(email);
+        Chapter chapter = chapterService.findById(chapterId);
+        List<String> blocks = ChapterBlocks.split(chapter.getContent());
+
+        // Une ancre résolue une fois sert à toutes les lignes qui la partagent :
+        // `resolve` peut balayer le chapitre entier, on ne le fait pas six fois.
+        Map<String, Integer> resolvedByAnchor = new HashMap<>();
+        Map<Integer, BlockActivity> live = new TreeMap<>();
+        long orphanedComments = 0;
+
+        for (var tally : annotationRepository.tallyComments(chapterId)) {
+            int index = resolve(resolvedByAnchor, blocks, tally.getBlockIndex(), tally.getTextHash());
+            if (index < 0) {
+                orphanedComments += tally.getTotal();
+                continue;
+            }
+            live.computeIfAbsent(index, key -> new BlockActivity()).comments += tally.getTotal();
+        }
+
+        for (var tally : annotationRepository.tallyReactions(chapterId, user.getId())) {
+            int index = resolve(resolvedByAnchor, blocks, tally.getBlockIndex(), tally.getTextHash());
+            // Une réaction orpheline est simplement perdue, et ce n'est pas grave :
+            // « 3 réactions sur un passage disparu » n'apprendrait rien à personne,
+            // alors qu'un message orphelin, lui, contient encore des mots à lire.
+            if (index < 0) {
+                continue;
+            }
+            BlockActivity activity = live.computeIfAbsent(index, key -> new BlockActivity());
+            activity.add(tally.getEmoji(), tally.getTotal(), tally.getMine() > 0);
+        }
+
+        List<BlockActivityResponse> responses = new ArrayList<>(live.size());
+        live.forEach((index, activity) -> responses.add(activity.toResponse(index)));
+        return new ChapterActivityResponse(responses, orphanedComments);
+    }
+
+    /**
+     * Le fil d'un passage, désigné par l'index tel que l'app l'affiche aujourd'hui.
+     *
+     * <p>La recherche se fait par empreinte, puis on écarte les homonymes : deux blocs
+     * rigoureusement identiques dans un même chapitre (une ligne de séparation, par
+     * exemple) partagent la même empreinte, et leurs fils ne doivent pas se mélanger.
+     */
+    @Transactional(readOnly = true)
+    public List<PassageCommentResponse> thread(String email, Long chapterId, int blockIndex) {
+        User user = userService.findByEmail(email);
+        Chapter chapter = chapterService.findById(chapterId);
+        List<String> blocks = requireBlock(chapter, blockIndex);
+        String hash = ChapterBlocks.hash(blocks.get(blockIndex));
+
+        return annotationRepository.findThread(chapterId, hash).stream()
+                .filter(annotation -> ChapterBlocks
+                        .resolve(blocks, annotation.getBlockIndex(), annotation.getTextHash())
+                        .blockIndex() == blockIndex)
+                .map(annotation -> toResponse(annotation, user.getId()))
+                .toList();
+    }
+
+    // ── Écriture ──────────────────────────────────────────────────────────────
+
+    /** Accroche un message au bloc désigné. */
+    @Transactional
+    public PassageCommentResponse comment(
+            String email, Long chapterId, int blockIndex, String body, boolean spoiler) {
+        User user = userService.findByEmail(email);
+        Chapter chapter = chapterService.findById(chapterId);
+        List<String> blocks = requireBlock(chapter, blockIndex);
+
+        String cleaned = body == null ? "" : body.strip();
+        if (cleaned.isEmpty()) {
+            throw new InvalidPassageException("Le message ne peut pas être vide");
+        }
+        if (cleaned.length() > PassageAnnotation.MAX_BODY_LENGTH) {
+            throw new InvalidPassageException(
+                    "Le message ne peut pas dépasser "
+                            + PassageAnnotation.MAX_BODY_LENGTH + " caractères");
+        }
+        requireNotFlooding(user);
+
+        PassageAnnotation saved = annotationRepository.save(PassageAnnotation.comment(
+                chapter,
+                user,
+                blockIndex,
+                ChapterBlocks.hash(blocks.get(blockIndex)),
+                cleaned,
+                spoiler));
+        return toResponse(saved, user.getId());
+    }
+
+    /**
+     * Pose, remplace ou retire une réaction — un seul geste côté lecteur, donc un seul
+     * appel côté API.
+     *
+     * <p>Toucher l'emoji déjà posé le retire ; en toucher un autre le remplace. Un
+     * lecteur n'a qu'une réaction par passage : la marge n'affiche qu'un compteur, et
+     * laisser quelqu'un poser les six emojis sur le même paragraphe gonflerait
+     * l'agrégat sans rien exprimer de plus.
+     */
+    @Transactional
+    public PassageReactionResponse react(
+            String email, Long chapterId, int blockIndex, String emoji) {
+        User user = userService.findByEmail(email);
+        Chapter chapter = chapterService.findById(chapterId);
+        List<String> blocks = requireBlock(chapter, blockIndex);
+
+        if (!ALLOWED_EMOJIS.contains(emoji)) {
+            // Refuser plutôt que d'accepter n'importe quel caractère : l'agrégat et la
+            // marge reposent sur un jeu fini, et un client modifié ne doit pas pouvoir
+            // y glisser une chaîne arbitraire.
+            throw new InvalidPassageException("Cet emoji n'est pas proposé");
+        }
+
+        String hash = ChapterBlocks.hash(blocks.get(blockIndex));
+        Optional<PassageAnnotation> existing =
+                annotationRepository.findMyReaction(chapterId, hash, user.getId());
+
+        if (existing.isPresent()) {
+            PassageAnnotation reaction = existing.get();
+            if (emoji.equals(reaction.getEmoji())) {
+                annotationRepository.delete(reaction);
+            } else {
+                reaction.changeEmoji(emoji);
+            }
+        } else {
+            annotationRepository.save(
+                    PassageAnnotation.reaction(chapter, user, blockIndex, hash, emoji));
+        }
+        // Vidé vers la base avant de recompter : sans ça, l'agrégat renverrait l'état
+        // d'avant le geste et la barre reviendrait en arrière sous le doigt.
+        annotationRepository.flush();
+
+        return tallyOf(chapterId, blockIndex, hash, user.getId(), blocks);
+    }
+
+    /** Retire un de SES messages. Un message n'est jamais modifiable : trop court pour ça. */
+    @Transactional
+    public void delete(String email, Long annotationId) {
+        User user = userService.findByEmail(email);
+        PassageAnnotation annotation = annotationRepository
+                .findByIdAndUser_Id(annotationId, user.getId())
+                .filter(a -> a.getKind() == PassageAnnotation.Kind.COMMENT
+                        || a.getKind() == PassageAnnotation.Kind.REACTION)
+                .orElseThrow(() -> new PassageAnnotationNotFoundException(annotationId));
+        annotationRepository.delete(annotation);
+    }
+
+    // ── Interne ───────────────────────────────────────────────────────────────
+
+    /** L'état d'un seul bloc après une écriture, sans redemander tout le chapitre. */
+    private PassageReactionResponse tallyOf(
+            Long chapterId, int blockIndex, String hash, Long userId, List<String> blocks) {
+
+        BlockActivity activity = new BlockActivity();
+        for (var tally : annotationRepository.tallyReactions(chapterId, userId)) {
+            if (!hash.equals(tally.getTextHash())) {
+                continue;
+            }
+            // Même précaution que pour le fil : deux blocs identiques partagent une
+            // empreinte, leurs compteurs ne doivent pas se mélanger.
+            if (ChapterBlocks.resolve(blocks, tally.getBlockIndex(), tally.getTextHash())
+                    .blockIndex() != blockIndex) {
+                continue;
+            }
+            activity.add(tally.getEmoji(), tally.getTotal(), tally.getMine() > 0);
+        }
+        return new PassageReactionResponse(blockIndex, activity.myEmoji, activity.tallies());
+    }
+
+    /** Mémoïse la résolution : une même ancre revient une fois par emoji. */
+    private static int resolve(
+            Map<String, Integer> cache, List<String> blocks, int storedIndex, String storedHash) {
+        return cache.computeIfAbsent(
+                storedIndex + "@" + storedHash,
+                key -> ChapterBlocks.resolve(blocks, storedIndex, storedHash).blockIndex());
+    }
+
+    /** Les blocs du chapitre, après avoir vérifié que l'index en désigne bien un. */
+    private static List<String> requireBlock(Chapter chapter, int blockIndex) {
+        List<String> blocks = ChapterBlocks.split(chapter.getContent());
+        if (blockIndex < 0 || blockIndex >= blocks.size()) {
+            // L'app et l'API ont découpé le chapitre différemment, ou le chapitre a
+            // changé sous les pieds du lecteur. Refuser vaut mieux qu'accrocher un
+            // message à un paragraphe au hasard.
+            throw new InvalidPassageException("Ce passage n'existe pas dans ce chapitre");
+        }
+        return blocks;
+    }
+
+    private void requireNotFlooding(User user) {
+        boolean tooSoon = annotationRepository.existsByUser_IdAndKindAndCreatedAtAfter(
+                user.getId(), PassageAnnotation.Kind.COMMENT, Instant.now().minus(MIN_INTERVAL));
+        if (tooSoon) {
+            throw new CommentRateLimitedException(MIN_INTERVAL.toSeconds());
+        }
+    }
+
+    private static PassageCommentResponse toResponse(
+            PassageAnnotation annotation, Long currentUserId) {
+        User author = annotation.getUser();
+        return new PassageCommentResponse(
+                annotation.getId(),
+                author.getId(),
+                author.getPseudo(),
+                author.getAvatarUrl(),
+                annotation.getBody(),
+                annotation.isSpoiler(),
+                currentUserId != null && currentUserId.equals(author.getId()),
+                annotation.getCreatedAt());
+    }
+
+    /**
+     * Accumulateur d'un bloc pendant l'agrégation.
+     *
+     * <p>Les emojis sont rangés dans l'ordre de {@link #ALLOWED_EMOJIS} et non par
+     * nombre décroissant : trié par popularité, un emoji changerait de place dès qu'une
+     * réaction arrive, et le lecteur toucherait celui qu'il ne visait pas.
+     */
+    private static final class BlockActivity {
+        private long comments;
+        private final Map<String, Long> counts = new LinkedHashMap<>();
+        private String myEmoji;
+
+        void add(String emoji, long total, boolean mine) {
+            if (emoji == null) {
+                return;
+            }
+            counts.merge(emoji, total, Long::sum);
+            if (mine) {
+                myEmoji = emoji;
+            }
+        }
+
+        List<EmojiTallyResponse> tallies() {
+            return ALLOWED_EMOJIS.stream()
+                    .filter(counts::containsKey)
+                    .map(emoji -> new EmojiTallyResponse(emoji, counts.get(emoji)))
+                    .toList();
+        }
+
+        BlockActivityResponse toResponse(int blockIndex) {
+            return new BlockActivityResponse(blockIndex, comments, tallies(), myEmoji);
+        }
+    }
+}

@@ -207,6 +207,29 @@ CREATE TABLE IF NOT EXISTS passage_annotation (
 CREATE INDEX IF NOT EXISTS idx_passage_annotation_user_kind_created
     ON passage_annotation (user_id, kind, created_at DESC);
 
--- Agrégats par chapitre (réactions à venir) et résolution d'ancre.
+-- Résolution d'ancre (« aller au passage »).
 CREATE INDEX IF NOT EXISTS idx_passage_annotation_chapter_block
     ON passage_annotation (chapter_id, block_index);
+
+-- Agrégats par bloc (#41, §4) : l'écran de lecture demande en UN appel
+-- l'activité de tous les blocs du chapitre. `kind` en deuxième position
+-- rend réactions et commentaires contigus, sans relire les citations.
+CREATE INDEX IF NOT EXISTS idx_passage_annotation_chapter_kind_block
+    ON passage_annotation (chapter_id, kind, block_index);
+
+-- Une seule réaction par lecteur et par passage — choix de conception : la
+-- marge n'affiche qu'un compteur, poser les six emojis sur le même
+-- paragraphe fausserait l'agrégat sans rien exprimer de plus. Toucher un
+-- autre emoji REMPLACE le précédent. La clé est l'EMPREINTE et non l'index,
+-- qu'une ré-ingestion décale. Index partiel : les citations, elles, peuvent
+-- être multiples sur un même passage.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_passage_annotation_one_reaction_per_passage
+    ON passage_annotation (user_id, chapter_id, text_hash)
+    WHERE kind = 'REACTION';
+
+-- Fil d'un passage, du plus ancien au plus récent : une discussion se lit
+-- dans l'ordre où elle s'est tenue. Interrogé par EMPREINTE — cherché à
+-- l'index, un fil reviendrait vide après une ré-ingestion alors que les
+-- messages sont toujours là (#41, §2 : jamais de passage perdu en silence).
+CREATE INDEX IF NOT EXISTS idx_passage_annotation_thread
+    ON passage_annotation (chapter_id, text_hash, kind, created_at);
