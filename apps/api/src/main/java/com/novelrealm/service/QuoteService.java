@@ -1,10 +1,13 @@
 package com.novelrealm.service;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,6 +38,9 @@ import com.novelrealm.repository.PassageAnnotationRepository;
 public class QuoteService {
 
     private static final int MAX_PAGE_SIZE = 50;
+
+    /** Valeur de {@code sort} qui inverse l'ordre ; toute autre donne « récentes d'abord ». */
+    private static final String OLDEST_FIRST = "oldest";
 
     private final PassageAnnotationRepository annotationRepository;
     private final ChapterService chapterService;
@@ -104,9 +110,19 @@ public class QuoteService {
                 saved.getCreatedAt());
     }
 
-    /** La collection, la plus récente d'abord. {@code novelId} et {@code search} facultatifs. */
+    /**
+     * La collection. Tous les critères sont facultatifs et se combinent :
+     * {@code novelId} restreint à un roman, {@code search} cherche dans le texte cité,
+     * {@code sort} vaut {@code "recent"} (défaut) ou {@code "oldest"}, {@code days}
+     * limite aux N derniers jours ({@code 0} = depuis toujours).
+     *
+     * <p>Tout est appliqué en base, jamais sur la page reçue : la collection est
+     * paginée, trier ou filtrer vingt lignes déjà choisies ne trierait que ces
+     * vingt-là.
+     */
     @Transactional(readOnly = true)
-    public Page<QuoteResponse> list(String email, Long novelId, String search, int page, int size) {
+    public Page<QuoteResponse> list(
+            String email, Long novelId, String search, String sort, int days, int page, int size) {
         User user = userService.findByEmail(email);
 
         return annotationRepository
@@ -114,7 +130,11 @@ public class QuoteService {
                         user.getId(),
                         novelId,
                         likePattern(search),
-                        PageRequest.of(Math.max(page, 0), Math.clamp(size, 1, MAX_PAGE_SIZE)))
+                        since(days),
+                        PageRequest.of(
+                                Math.max(page, 0),
+                                Math.clamp(size, 1, MAX_PAGE_SIZE),
+                                order(sort)))
                 .map(view -> new QuoteResponse(
                         view.getId(),
                         view.getQuotedText(),
@@ -163,6 +183,34 @@ public class QuoteService {
     @Transactional
     public void delete(String email, Long quoteId) {
         annotationRepository.delete(findOwn(email, quoteId));
+    }
+
+    /**
+     * Ordre demandé, avec l'identifiant en arbitre.
+     *
+     * <p>Deux citations capturées dans la même seconde auraient sinon un ordre
+     * indéterminé, susceptible de changer d'une requête à l'autre — et en pagination,
+     * cela se voit : une citation apparaît deux fois pendant qu'une autre disparaît.
+     * L'identifiant est unique et suit la même chronologie, il départage sans jamais
+     * contredire la date.
+     */
+    private static Sort order(String sort) {
+        Sort.Direction direction = OLDEST_FIRST.equalsIgnoreCase(sort)
+                ? Sort.Direction.ASC
+                : Sort.Direction.DESC;
+        return Sort.by(direction, "createdAt", "id");
+    }
+
+    /**
+     * Borne basse de la période demandée.
+     *
+     * <p>« Depuis toujours » renvoie {@link Instant#EPOCH} et non {@code null} : la
+     * requête compare toujours à une date réelle, ce qui lui évite d'avoir à gérer un
+     * paramètre nul non typé — la cause du bug {@code lower(bytea)} rencontré sur la
+     * recherche.
+     */
+    private static Instant since(int days) {
+        return days > 0 ? Instant.now().minus(Duration.ofDays(days)) : Instant.EPOCH;
     }
 
     /**

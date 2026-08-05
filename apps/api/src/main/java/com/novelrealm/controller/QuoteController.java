@@ -56,18 +56,24 @@ public class QuoteController {
     }
 
     /**
-     * GET /api/me/quotes?novelId=&q=&page=&size= — ma collection, récentes d'abord.
-     * {@code novelId} filtre sur un roman, {@code q} cherche dans le texte cité.
+     * GET /api/me/quotes?novelId=&q=&sort=&days=&page=&size= — ma collection.
+     *
+     * <p>Les critères se combinent : {@code novelId} restreint à un roman, {@code q}
+     * cherche dans le texte cité, {@code sort} vaut {@code recent} (défaut) ou
+     * {@code oldest}, {@code days} ne garde que les N derniers jours ({@code 0} =
+     * depuis toujours). Tous ont une valeur par défaut, donc l'appel nu reste valable.
      */
     @GetMapping("/me/quotes")
     public ResponseEntity<PageResponse<QuoteResponse>> list(
             @RequestParam(required = false) Long novelId,
             @RequestParam(required = false) String q,
+            @RequestParam(defaultValue = "recent") String sort,
+            @RequestParam(defaultValue = "0") int days,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             Authentication authentication) {
         return ResponseEntity.ok(PageResponse.from(
-                quoteService.list(authentication.getName(), novelId, q, page, size)));
+                quoteService.list(authentication.getName(), novelId, q, sort, days, page, size)));
     }
 
     /** GET /api/me/quotes/counts — nombre de mes citations par roman. */

@@ -15,8 +15,7 @@ import com.novelrealm.model.PassageAnnotation;
 public interface PassageAnnotationRepository extends JpaRepository<PassageAnnotation, Long> {
 
     /**
-     * Les citations d'un utilisateur, les plus récentes d'abord, avec de quoi les
-     * afficher (roman + chapitre).
+     * Les citations d'un utilisateur, avec de quoi les afficher (roman + chapitre).
      *
      * <p><b>Projection et non entités, volontairement.</b> Charger l'entité
      * {@code Chapter} embarquerait sa colonne {@code content} — le texte intégral du
@@ -24,7 +23,10 @@ public interface PassageAnnotationRepository extends JpaRepository<PassageAnnota
      * afficher 20 phrases. La projection ne sélectionne que les colonnes utiles.
      *
      * <p>{@code novelId} et {@code pattern} sont facultatifs : passer {@code null}
-     * désactive le filtre correspondant.
+     * désactive le filtre correspondant. {@code since} ne l'est pas : le service passe
+     * {@link java.time.Instant#EPOCH} quand aucune période n'est demandée, plutôt qu'un
+     * {@code null}. Un paramètre nul non typé est exactement ce qui a produit le bug
+     * {@code lower(bytea)} décrit plus bas ; ne jamais en lier évite la question.
      *
      * <p><b>{@code pattern} arrive déjà en minuscules et déjà entouré de {@code %}</b>
      * (voir {@code QuoteService#likePattern}). Construire le motif dans la requête —
@@ -32,6 +34,12 @@ public interface PassageAnnotationRepository extends JpaRepository<PassageAnnota
      * nul : PostgreSQL ne peut pas deviner le type d'un {@code null} non typé, le
      * prend pour du {@code bytea}, et {@code lower(bytea)} n'existe pas. Comparé
      * directement à une colonne texte via {@code like}, le type s'infère tout seul.
+     *
+     * <p><b>Aucun {@code order by} ici : c'est le {@link Pageable} qui l'apporte.</b>
+     * L'écran propose « plus récentes » ou « plus anciennes » ; un tri figé dans la
+     * requête serait concaténé avec celui du {@code Pageable} et le premier gagnerait,
+     * rendant le second inopérant. Le service a la charge de toujours fournir un tri —
+     * sans lui, la pagination n'aurait aucun ordre garanti.
      */
     @Query(value = """
             select a.id                as id,
@@ -48,9 +56,9 @@ public interface PassageAnnotationRepository extends JpaRepository<PassageAnnota
               join c.novel n
             where a.user.id = :userId
               and a.kind = com.novelrealm.model.PassageAnnotation$Kind.QUOTE
+              and a.createdAt >= :since
               and (:novelId is null or n.id = :novelId)
               and (:pattern is null or lower(a.quotedText) like :pattern escape '!')
-            order by a.createdAt desc
             """,
             countQuery = """
             select count(a)
@@ -59,6 +67,7 @@ public interface PassageAnnotationRepository extends JpaRepository<PassageAnnota
               join c.novel n
             where a.user.id = :userId
               and a.kind = com.novelrealm.model.PassageAnnotation$Kind.QUOTE
+              and a.createdAt >= :since
               and (:novelId is null or n.id = :novelId)
               and (:pattern is null or lower(a.quotedText) like :pattern escape '!')
             """)
@@ -66,6 +75,7 @@ public interface PassageAnnotationRepository extends JpaRepository<PassageAnnota
             @Param("userId") Long userId,
             @Param("novelId") Long novelId,
             @Param("pattern") String pattern,
+            @Param("since") Instant since,
             Pageable pageable);
 
     /**
