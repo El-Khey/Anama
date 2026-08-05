@@ -200,6 +200,11 @@ CREATE TABLE IF NOT EXISTS passage_annotation (
     body          TEXT,                                    -- réservé aux commentaires/notes
     is_private    BOOLEAN NOT NULL DEFAULT TRUE,
     is_spoiler    BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Réponse à un autre commentaire de passage (#41, §4). Un seul niveau :
+    -- au-delà, l'indentation devient illisible sur un téléphone. Supprimer
+    -- un message emporte ses réponses — un fil de trois messages accroché à
+    -- une ligne n'a pas de conversation à préserver.
+    parent_id     BIGINT REFERENCES passage_annotation(id) ON DELETE CASCADE,
     created_at    TIMESTAMP NOT NULL
 );
 

@@ -3,12 +3,14 @@ package com.novelrealm.service;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -143,11 +145,25 @@ public class PassageSocialService {
         List<String> blocks = requireBlock(chapter, blockIndex);
         String hash = ChapterBlocks.hash(blocks.get(blockIndex));
 
-        return annotationRepository.findThread(chapterId, hash).stream()
+        List<PassageAnnotation> rows = annotationRepository.findThread(chapterId, hash).stream()
                 .filter(annotation -> ChapterBlocks
                         .resolve(blocks, annotation.getBlockIndex(), annotation.getTextHash())
                         .blockIndex() == blockIndex)
-                .map(annotation -> toResponse(annotation, user.getId()))
+                .toList();
+
+        // Les réponses sont indexées en une passe, puis rattachées : le fil entier est
+        // déjà en mémoire, aller rechercher les réponses message par message
+        // ressusciterait le N+1 que la requête unique vient d'éviter.
+        Map<Long, List<PassageAnnotation>> repliesByRoot = rows.stream()
+                .filter(row -> !row.isRoot())
+                .collect(Collectors.groupingBy(row -> row.getParent().getId()));
+
+        return rows.stream()
+                .filter(PassageAnnotation::isRoot)
+                .map(root -> toResponse(
+                        root,
+                        user.getId(),
+                        repliesByRoot.getOrDefault(root.getId(), List.of())))
                 .toList();
     }
 
@@ -156,10 +172,16 @@ public class PassageSocialService {
     /** Accroche un message au bloc désigné. */
     @Transactional
     public PassageCommentResponse comment(
-            String email, Long chapterId, int blockIndex, String body, boolean spoiler) {
+            String email,
+            Long chapterId,
+            int blockIndex,
+            String body,
+            boolean spoiler,
+            Long parentId) {
         User user = userService.findByEmail(email);
         Chapter chapter = chapterService.findById(chapterId);
         List<String> blocks = requireBlock(chapter, blockIndex);
+        PassageAnnotation parent = resolveParent(chapterId, parentId);
 
         String cleaned = body == null ? "" : body.strip();
         if (cleaned.isEmpty()) {
@@ -175,11 +197,36 @@ public class PassageSocialService {
         PassageAnnotation saved = annotationRepository.save(PassageAnnotation.comment(
                 chapter,
                 user,
-                blockIndex,
-                ChapterBlocks.hash(blocks.get(blockIndex)),
+                // Une réponse hérite de l'ancre de son fil : elle appartient au même
+                // passage, et doit remonter dans la même requête que lui.
+                parent != null ? parent.getBlockIndex() : blockIndex,
+                parent != null
+                        ? parent.getTextHash()
+                        : ChapterBlocks.hash(blocks.get(blockIndex)),
                 cleaned,
-                spoiler));
-        return toResponse(saved, user.getId());
+                spoiler,
+                parent));
+        return toResponse(saved, user.getId(), List.of());
+    }
+
+    /**
+     * Le message racine auquel rattacher une réponse, ou {@code null} pour un nouveau fil.
+     *
+     * <p><b>Répondre à une réponse est accepté et re-rattaché au fil</b> plutôt que
+     * refusé : du point de vue du lecteur, le geste est identique, et lui opposer une
+     * erreur pour une règle d'affichage serait incompréhensible. C'est aussi ce qui
+     * garantit qu'un fil ne descend jamais au-delà d'un niveau, quelle que soit la
+     * cible envoyée par le client.
+     */
+    private PassageAnnotation resolveParent(Long chapterId, Long parentId) {
+        if (parentId == null) {
+            return null;
+        }
+        PassageAnnotation parent = annotationRepository.findById(parentId)
+                .filter(candidate -> candidate.getKind() == PassageAnnotation.Kind.COMMENT)
+                .filter(candidate -> candidate.getChapter().getId().equals(chapterId))
+                .orElseThrow(() -> new PassageAnnotationNotFoundException(parentId));
+        return parent.isRoot() ? parent : parent.getParent();
     }
 
     /**
@@ -290,8 +337,14 @@ public class PassageSocialService {
     }
 
     private static PassageCommentResponse toResponse(
-            PassageAnnotation annotation, Long currentUserId) {
+            PassageAnnotation annotation,
+            Long currentUserId,
+            List<PassageAnnotation> replies) {
         User author = annotation.getUser();
+        List<PassageCommentResponse> mappedReplies = replies.stream()
+                .sorted(Comparator.comparing(PassageAnnotation::getCreatedAt))
+                .map(reply -> toResponse(reply, currentUserId, List.of()))
+                .toList();
         return new PassageCommentResponse(
                 annotation.getId(),
                 author.getId(),
@@ -300,7 +353,8 @@ public class PassageSocialService {
                 annotation.getBody(),
                 annotation.isSpoiler(),
                 currentUserId != null && currentUserId.equals(author.getId()),
-                annotation.getCreatedAt());
+                annotation.getCreatedAt(),
+                mappedReplies);
     }
 
     /**

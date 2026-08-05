@@ -108,6 +108,17 @@ public class PassageAnnotation {
     @Column(name = "is_spoiler", nullable = false)
     private boolean isSpoiler = false;
 
+    /**
+     * Message auquel celui-ci répond, ou {@code null} s'il ouvre le fil.
+     *
+     * <p><b>Un seul niveau</b>, comme en fin de chapitre : au-delà, l'indentation
+     * devient illisible sur un téléphone. Une réponse à une réponse est re-rattachée
+     * au même fil racine par le service, avec une mention {@code @pseudo}.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "parent_id")
+    private PassageAnnotation parent;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -149,8 +160,10 @@ public class PassageAnnotation {
             int blockIndex,
             String textHash,
             String body,
-            boolean isSpoiler) {
+            boolean isSpoiler,
+            PassageAnnotation parent) {
         PassageAnnotation annotation = new PassageAnnotation();
+        annotation.parent = parent;
         annotation.chapter = chapter;
         annotation.user = user;
         annotation.blockIndex = blockIndex;
@@ -240,6 +253,15 @@ public class PassageAnnotation {
 
     public boolean isSpoiler() {
         return isSpoiler;
+    }
+
+    public PassageAnnotation getParent() {
+        return parent;
+    }
+
+    /** Un message racine ouvre le fil ; les autres sont des réponses. */
+    public boolean isRoot() {
+        return parent == null;
     }
 
     public Instant getCreatedAt() {

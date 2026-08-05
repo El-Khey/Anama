@@ -36,7 +36,14 @@ public record CreatePassageCommentRequest(
          * défaut, et c'est exactement ce que fait {@code kotlinx.serialization}.
          * Absent vaut donc « pas un spoiler », comme un lecteur s'y attend.
          */
-        Boolean spoiler
+        Boolean spoiler,
+
+        /**
+         * Message auquel on répond, ou {@code null} pour ouvrir un fil. Répondre à une
+         * réponse est accepté : le serveur re-rattache au fil racine plutôt que de
+         * refuser, parce que du point de vue du lecteur le geste est le même.
+         */
+        Long parentId
 ) {
     /** {@code true} seulement si le client l'a explicitement demandé. */
     public boolean isSpoiler() {

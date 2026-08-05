@@ -79,7 +79,8 @@ public class PassageSocialController {
                 chapterId,
                 request.blockIndex(),
                 request.body(),
-                request.isSpoiler());
+                request.isSpoiler(),
+                request.parentId());
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
