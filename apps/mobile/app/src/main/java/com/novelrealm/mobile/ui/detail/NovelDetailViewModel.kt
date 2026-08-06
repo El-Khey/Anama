@@ -67,8 +67,34 @@ class NovelDetailViewModel(private val novelId: Long) : ViewModel() {
     private val _state = MutableStateFlow(NovelDetailUiState())
     val state: StateFlow<NovelDetailUiState> = _state.asStateFlow()
 
+    /**
+     * Faux tant que l'écran n'a pas encore été quitté puis rouvert. Voir [refreshOnReturn].
+     */
+    private var seenFirstComposition = false
+
     init {
         load()
+    }
+
+    /**
+     * Resynchronise ce que le lecteur a pu changer — appelé à **chaque** composition de
+     * l'écran, y compris la toute première.
+     *
+     * <p>Or à la première, [load] vient de charger exactement ces trois choses : l'appel
+     * rejouait donc `progress`, `favorites` et `comment-counts` une seconde fois, ~70 ms
+     * après les premières, à chaque ouverture d'un roman. On saute ce premier passage ;
+     * les suivants sont de vrais retours du lecteur, où le rafraîchissement est utile.
+     *
+     * <p>Le drapeau vit dans le ViewModel et non dans la composition : sa durée de vie
+     * est exactement celle qu'on veut suivre — l'entrée de pile de navigation. Un
+     * `remember` serait effacé en allant dans le lecteur, donc toujours vrai au retour.
+     */
+    fun refreshOnReturn() {
+        if (!seenFirstComposition) {
+            seenFirstComposition = true
+            return
+        }
+        refreshProgress()
     }
 
     fun load() {

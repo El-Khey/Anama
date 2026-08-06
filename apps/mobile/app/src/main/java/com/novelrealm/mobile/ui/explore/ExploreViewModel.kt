@@ -74,9 +74,27 @@ class ExploreViewModel : ViewModel() {
     private var nextPage = 0
     private var searchJob: Job? = null
 
+    /** Faux tant que l'onglet n'a pas été quitté puis rouvert. Voir [refreshOnReturn]. */
+    private var seenFirstComposition = false
+
     init {
         refresh()
         loadGenres()
+        refreshLibraryFlags()
+    }
+
+    /**
+     * Recharge les cœurs au **retour** sur l'onglet — et seulement là.
+     *
+     * <p>L'écran appelle ceci à chaque composition, la première comprise, où l'`init`
+     * ci-dessus vient déjà de le faire : `GET /api/library` partait donc deux fois à
+     * chaque premier affichage du catalogue.
+     */
+    fun refreshOnReturn() {
+        if (!seenFirstComposition) {
+            seenFirstComposition = true
+            return
+        }
         refreshLibraryFlags()
     }
 

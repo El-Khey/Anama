@@ -56,11 +56,23 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 : retire le code mort et raccourcit le graphe de classes. C'est ce qui
+            // sépare vraiment un build de développement d'un build livré — `material
+            // -icons-extended` à lui seul embarque des milliers d'icônes dont l'app en
+            // utilise une trentaine, et chaque classe restante est une classe à charger
+            // au premier affichage d'un écran.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Signé avec la clé de debug, UNIQUEMENT pour pouvoir installer et mesurer
+            // un vrai build release depuis un poste de dev : sans configuration de
+            // signature, `assembleRelease` produit un APK non signé, donc non
+            // installable, et la question « est-ce que ça ira mieux une fois déployé ? »
+            // reste sans réponse. À remplacer par une vraie clé avant toute publication.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {

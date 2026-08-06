@@ -134,8 +134,9 @@ fun NovelDetailScreen(
 ) {
     val state by viewModel.state.collectAsState()
 
-    // Au retour du lecteur, la progression et les signets ont pu changer.
-    LaunchedEffect(Unit) { viewModel.refreshProgress() }
+    // Au retour du lecteur, la progression et les signets ont pu changer. Le ViewModel
+    // ignore le tout premier appel : son chargement initial vient de le faire.
+    LaunchedEffect(Unit) { viewModel.refreshOnReturn() }
 
     Box(
         modifier = modifier

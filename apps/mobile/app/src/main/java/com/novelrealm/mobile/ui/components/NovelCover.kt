@@ -3,6 +3,7 @@ package com.novelrealm.mobile.ui.components
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -27,7 +28,9 @@ fun NovelCover(
     ratio: Float = COVER_RATIO_BOOK,
     shape: Shape = RoundedCornerShape(12.dp),
 ) {
-    val placeholder = ColorPainter(Color(0x1F888888))
+    // `remember` : cette couverture est répétée par dizaines dans une grille qui défile,
+    // et sans lui chaque recomposition rallouait un painter pourtant toujours identique.
+    val placeholder = remember { ColorPainter(Color(0x1F888888)) }
     AsyncImage(
         model = resolveImageUrl(coverUrl),
         contentDescription = contentDescription,

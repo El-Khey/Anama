@@ -37,6 +37,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.serialization.json.Json
+import okhttp3.Dispatcher
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -92,6 +93,13 @@ object ServiceLocator {
 
     private val okHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            // OkHttp ne laisse par défaut que 5 appels simultanés vers un même hôte. Or
+            // nos écrans en lancent davantage d'un coup — la fiche d'un roman en ouvre
+            // huit en parallèle — et les surnuméraires attendaient qu'une place se
+            // libère. Sur le réseau d'un vrai téléphone, cela ajoute un aller-retour
+            // complet à l'affichage. Toute l'API tient sur un seul hôte : la limite par
+            // hôte n'a donc aucune raison d'être plus basse que la limite globale.
+            .dispatcher(Dispatcher().apply { maxRequestsPerHost = maxRequests })
             // Injecte le Bearer sur les appels authentifiés + déconnecte sur 401 (token expiré).
             .addInterceptor(AuthInterceptor(tokenStorage, onUnauthorized = { sessionManager.onUnauthorized() }))
             .addInterceptor(
