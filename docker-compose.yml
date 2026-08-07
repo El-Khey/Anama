@@ -17,9 +17,18 @@ services:
     environment:
       POSTGRES_DB: novelrealm
       POSTGRES_USER: novelrealm
-      POSTGRES_PASSWORD: novelrealm
+      # ⚠️ POSTGRES_PASSWORD n'est lu QU'À LA CRÉATION du volume. Le changer
+      # ensuite ne change PAS le mot de passe réel de la base — il faut un
+      # « ALTER USER novelrealm PASSWORD '…' ». À définir dans .env AVANT le
+      # tout premier démarrage sur le serveur ; le défaut ne sert qu'au dev.
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-novelrealm}
     ports:
-      - "5433:5432"
+      # Publication réglable, pour ne pas exposer la base hors de la machine
+      # en production. Défaut = dev (joignable depuis l'hôte, port 5433) ;
+      # sur le serveur, mettre DB_PUBLISH=127.0.0.1:5433 dans .env pour la
+      # réserver à la machine elle-même. L'API, elle, passe par le réseau
+      # interne Docker et n'a jamais besoin de ce port.
+      - "${DB_PUBLISH:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d
@@ -45,7 +54,7 @@ services:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: novelrealm
-      DB_PASSWORD: novelrealm
+      DB_PASSWORD: ${DB_PASSWORD:-novelrealm}
       # ── Identifiants SMTP (lus depuis le fichier .env, non commité) ──
       MAIL_USERNAME: ${MAIL_USERNAME}
       MAIL_PASSWORD: ${MAIL_PASSWORD}
@@ -54,8 +63,22 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
       # ── Secret de signature JWT (≥ 32 octets, depuis .env) ───────────
       JWT_SECRET: ${JWT_SECRET}
+      # Adresse PUBLIQUE du site — celle que voient les utilisateurs. Elle sert
+      # aux liens des e-mails et à la redirection après connexion Google. Le
+      # défaut convient au dev ; sur le serveur, mettre http://<ip-du-serveur>
+      # dans .env, sinon les mails enverront vos lecteurs sur leur propre PC.
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+    volumes:
+      # Les fichiers téléversés (avatars, bannières) sont écrits sur le DISQUE
+      # du conteneur. Sans ce volume, ils disparaissaient à chaque `make prod` :
+      # un redéploiement détruit et recrée le conteneur, donc son disque. Le
+      # volume, lui, survit — exactement comme celui de la base.
+      - uploads_data:/app/uploads
     ports:
-      - "8080:8080"
+      # Même logique que pour la base : en production, l'API n'a pas besoin
+      # d'être jointe directement — nginx la relaie depuis le réseau interne.
+      # Mettre API_PUBLISH=127.0.0.1:8080 dans .env sur le serveur.
+      - "${API_PUBLISH:-8080}:8080"
 
   # ── Front (servi par nginx en prod) ────────────────────────────
   web:
@@ -66,7 +89,15 @@ services:
     depends_on:
       - api
     ports:
-      - "5173:80"
+      # C'est LE point d'entrée : nginx sert le front ET relaie /api vers l'API.
+      # Défaut 5173 pour le dev (le port 80 de l'hôte est souvent déjà pris) ;
+      # sur le serveur, WEB_PUBLISH=80 dans .env donne une adresse sans port :
+      # http://192.168.1.x/ au lieu de http://192.168.1.x:5173/
+      - "${WEB_PUBLISH:-5173}:80"
 
 volumes:
   postgres_data:
+  # Fichiers téléversés par les utilisateurs (avatars, bannières). Séparé de la
+  # base : ce sont des fichiers, pas des lignes — mais tout aussi définitif à
+  # perdre. `make backup` sauvegarde les deux (dump SQL + archive des fichiers).
+  uploads_data:

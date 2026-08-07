@@ -89,16 +89,25 @@ clean:  ## Arrête tout et SUPPRIME les volumes (efface la base !)
 #  récupérer QUE les citations sans écraser le reste.
 # =====================================================================
 
-backup:  ## Sauvegarde la base dans db/backups/ (à faire avant toute migration)
+backup:  ## Sauvegarde base + fichiers téléversés dans db/backups/
 	@mkdir -p $(BACKUP_DIR)
-	@FILE=$(BACKUP_DIR)/novelrealm_$$(date +%Y-%m-%d_%H%M%S).dump; \
+	@STAMP=$$(date +%Y-%m-%d_%H%M%S); \
+	FILE=$(BACKUP_DIR)/novelrealm_$$STAMP.dump; \
 	if $(COMPOSE) exec -T postgres pg_dump -U novelrealm -d novelrealm -Fc > $$FILE 2>/dev/null; then \
-		echo "Sauvegardé : $$FILE ($$(du -h $$FILE | cut -f1))"; \
+		echo "Base      : $$FILE ($$(du -h $$FILE | cut -f1))"; \
 	else \
 		rm -f $$FILE; \
 		echo "Échec : la base ne répond pas (« make db » pour la démarrer)."; \
 		echo "Aucun fichier créé — une sauvegarde vide serait pire que pas de sauvegarde."; \
 		exit 1; \
+	fi; \
+	TAR=$(BACKUP_DIR)/uploads_$$STAMP.tar.gz; \
+	if $(COMPOSE) exec -T api tar -czf - -C /app uploads > $$TAR 2>/dev/null && [ -s $$TAR ]; then \
+		echo "Téléversés: $$TAR ($$(du -h $$TAR | cut -f1))"; \
+	else \
+		rm -f $$TAR; \
+		echo "Téléversés: NON sauvegardés — le conteneur api ne tourne pas."; \
+		echo "            (avatars et bannières ; relancer avec l'API démarrée)"; \
 	fi
 
 # ---------------------------------------------------------------------

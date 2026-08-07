@@ -15,6 +15,17 @@ public class EmailService {
     @Value("${spring.mail.username}")
     private String fromAddress;
 
+    /**
+     * Adresse publique du site, celle que verront les destinataires.
+     *
+     * <p>Elle était écrite en dur (« http://localhost:5173 ») dans le corps du mail :
+     * chaque lecteur inscrit depuis un autre appareil recevait donc un bouton pointant
+     * vers <b>sa propre machine</b>. Elle vient maintenant de {@code app.frontend-url},
+     * comme la redirection après connexion Google — un seul réglage pour les deux.
+     */
+    @Value("${app.frontend-url}")
+    private String frontendUrl;
+
     public EmailService(JavaMailSender mailSender) {
         this.mailSender = mailSender;
     }
@@ -50,7 +61,7 @@ public class EmailService {
                       Ton compte a bien été créé. Tu peux dès maintenant explorer
                       des centaines de mondes à lire.
                     </p>
-                    <a href="http://localhost:5173/login"
+                    <a href="%s/login"
                        style="display: inline-block; background-color: #fcd535; color: #181a20;
                               text-decoration: none; font-weight: 600; padding: 12px 24px;
                               border-radius: 8px;">
@@ -59,6 +70,7 @@ public class EmailService {
                   </div>
                 </div>
                 """
-                .formatted(pseudo);
+                // Ordre des %s dans le gabarit : le pseudo, puis l'adresse du site.
+                .formatted(pseudo, frontendUrl);
     }
 }
