@@ -79,7 +79,21 @@ restart-api:  ## Redémarre l'API (applique un changement backend en dev)
 rebuild:  ## Reconstruit les images dev de zéro (sans cache)
 	$(COMPOSE) $(DEV) build --no-cache
 
-clean:  ## Arrête tout et SUPPRIME les volumes (efface la base !)
+clean:  ## Arrête tout et SUPPRIME les volumes (efface la base ET les fichiers !)
+	@echo "⚠  Cette commande EFFACE définitivement :"
+	@echo "     • toute la base   — comptes, bibliothèques, progression, citations…"
+	@echo "     • tous les fichiers téléversés — avatars, bannières"
+	@echo ""
+	@echo "   Contenu actuel de la base :"
+	@$(COMPOSE) exec -T postgres psql -U novelrealm -d novelrealm -tAc \
+		"select '     ' || (select count(*) from users) || ' comptes, ' \
+		     || (select count(*) from novels) || ' romans, ' \
+		     || (select count(*) from passage_annotation) || ' annotations'" \
+		2>/dev/null || echo "     (base injoignable — impossible de dire ce qui sera perdu)"
+	@echo ""
+	@echo "   « make backup » d'abord si le moindre doute."
+	@printf "   Taper « effacer » pour continuer : "; \
+	read answer; [ "$$answer" = "effacer" ] || { echo "Annulé."; exit 1; }
 	$(COMPOSE) $(DEV) down -v
 
 # =====================================================================
