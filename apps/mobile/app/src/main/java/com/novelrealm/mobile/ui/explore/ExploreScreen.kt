@@ -91,7 +91,8 @@ fun ExploreScreen(
     var filtersOpen by remember { mutableStateOf(false) }
 
     // Au retour sur l'onglet, un roman a pu être ajouté en bibliothèque depuis sa fiche.
-    LaunchedEffect(Unit) { viewModel.refreshLibraryFlags() }
+    // Le ViewModel ignore le tout premier appel : son chargement initial vient de le faire.
+    LaunchedEffect(Unit) { viewModel.refreshOnReturn() }
 
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {

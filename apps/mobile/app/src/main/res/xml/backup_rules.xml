@@ -1,13 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+    Même règle que data_extraction_rules.xml, pour les appareils sous Android 11 et
+    antérieurs — eux lisent ce fichier-ci, les plus récents lisent l'autre. Les deux
+    doivent donc rester d'accord : on exclut le fichier du token, dont la clé de
+    déchiffrement ne quitte jamais le téléphone et ne peut donc pas être restaurée avec
+    lui. Voir data_extraction_rules.xml pour le détail.
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude domain="sharedpref" path="novelrealm_secure_prefs.xml" />
 </full-backup-content>

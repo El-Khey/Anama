@@ -39,6 +39,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Comment
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
@@ -133,8 +134,9 @@ fun NovelDetailScreen(
 ) {
     val state by viewModel.state.collectAsState()
 
-    // Au retour du lecteur, la progression et les signets ont pu changer.
-    LaunchedEffect(Unit) { viewModel.refreshProgress() }
+    // Au retour du lecteur, la progression et les signets ont pu changer. Le ViewModel
+    // ignore le tout premier appel : son chargement initial vient de le faire.
+    LaunchedEffect(Unit) { viewModel.refreshOnReturn() }
 
     Box(
         modifier = modifier
@@ -239,6 +241,7 @@ private fun DetailContent(
                     chapter = chapter,
                     progress = state.progress[chapter.id],
                     favorited = chapter.id in state.favoriteChapterIds,
+                    commentCount = state.commentCounts[chapter.id] ?: 0L,
                     selected = chapter.id in state.selectedChapterIds,
                     selectionMode = state.isSelecting,
                     onClick = {
@@ -662,6 +665,7 @@ private fun ChapterRow(
     chapter: ChapterDto,
     progress: ChapterProgressDto?,
     favorited: Boolean,
+    commentCount: Long,
     selected: Boolean,
     selectionMode: Boolean,
     onClick: () -> Unit,
@@ -741,6 +745,23 @@ private fun ChapterRow(
                         text = " · commencé ($position %)",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                // « Où ça discute » : rien du tout quand personne n'a écrit — un « 0 »
+                // sur chaque ligne encombrerait la liste sans rien apprendre.
+                if (commentCount > 0) {
+                    Spacer(Modifier.width(8.dp))
+                    Icon(
+                        Icons.AutoMirrored.Outlined.Comment,
+                        contentDescription = null,
+                        modifier = Modifier.size(13.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                    )
+                    Spacer(Modifier.width(3.dp))
+                    Text(
+                        text = "$commentCount",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
                     )
                 }
             }

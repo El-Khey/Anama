@@ -1,19 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-   Sample data extraction rules file; uncomment and customize as necessary.
-   See https://developer.android.com/about/versions/12/backup-restore#xml-changes
-   for details.
+    Ce qui part dans une sauvegarde Android (API 31+).
+
+    Par défaut, Android sauvegarde TOUT le contenu de l'app vers le compte Google et le
+    restaure sur un nouveau téléphone. C'est ce qu'on veut pour les réglages… mais pas
+    pour le fichier du token.
+
+    Le token est chiffré par une clé conservée dans l'Android Keystore, et cette clé, elle,
+    n'est JAMAIS sauvegardée : elle ne sort pas du téléphone. Restaurer le fichier chiffré
+    sur un autre appareil y déposerait donc un fichier illisible, sans clé pour l'ouvrir.
+    TokenStorage sait déjà s'en remettre (il repart d'une base propre plutôt que de
+    planter), mais autant ne pas produire la situation : on l'exclut, et l'utilisateur se
+    reconnecte — ce qu'il aurait dû faire de toute façon.
+
+    Le reste (thème, réglages de lecture) est sauvegardé sans risque, et de toute manière
+    re-synchronisé depuis le compte à la première connexion.
+
+    À garder en tête : ce qui compte vraiment — bibliothèque, progression, citations,
+    signets, commentaires, réactions — ne vit PAS sur le téléphone mais sur le serveur,
+    rattaché au compte. Aucune sauvegarde locale n'en est responsable.
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
+        <exclude domain="sharedpref" path="novelrealm_secure_prefs.xml" />
     </cloud-backup>
     <!--
-    <device-transfer>
-        <include .../>
-        <exclude .../>
-    </device-transfer>
+        Transfert direct d'un téléphone à l'autre : même raison. La clé du Keystore ne
+        suit pas davantage lors d'un transfert d'appareil que lors d'une restauration.
     -->
+    <device-transfer>
+        <exclude domain="sharedpref" path="novelrealm_secure_prefs.xml" />
+    </device-transfer>
 </data-extraction-rules>

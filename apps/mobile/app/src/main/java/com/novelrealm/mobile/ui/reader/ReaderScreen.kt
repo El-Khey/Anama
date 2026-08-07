@@ -3,6 +3,7 @@ package com.novelrealm.mobile.ui.reader
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -14,6 +15,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -41,6 +43,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.outlined.LinkOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -53,6 +56,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -64,6 +69,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -81,6 +89,8 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.novelrealm.mobile.data.remote.dto.BlockActivityDto
+import com.novelrealm.mobile.data.remote.dto.ChapterCommentDto
 import com.novelrealm.mobile.data.remote.dto.ChapterDetailDto
 import com.novelrealm.mobile.data.remote.dto.ChapterDto
 import com.novelrealm.mobile.data.remote.dto.displayTitle
@@ -106,6 +116,24 @@ private val SwipeMaxTravel = 140.dp
 /** Vitesse de lecture retenue pour l'estimation de durée (mots par minute). */
 private const val WordsPerMinute = 220
 
+/**
+ * Découpe un chapitre en blocs, exactement comme `ChapterBlocks.split` côté serveur :
+ * une ligne non vide, débarrassée de ses espaces de bord.
+ *
+ * **Les deux règles DOIVENT rester identiques**, sinon l'index d'un bloc ne désigne pas
+ * le même texte de part et d'autre — une citation ou un commentaire s'accrocherait au
+ * mauvais paragraphe. Toute évolution se fait ici ET dans `ChapterBlocks`, dans le même
+ * commit.
+ *
+ * Le repli sur le contenu brut ne concerne que l'affichage : un chapitre sans aucune
+ * ligne exploitable doit quand même se lire.
+ */
+private fun readerBlocks(content: String): List<String> =
+    content.split('\n')
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .ifEmpty { listOf(content) }
+
 // Lecteur de chapitre (#35), UX façon Mihon : texte plein écran, un tap fait apparaître /
 // disparaître les barres (titre + réglages + signet en haut ; précédent / slider / suivant
 // en bas). La position est restaurée à l'ouverture puis sauvegardée en continu (débouncée).
@@ -114,6 +142,11 @@ fun ReaderScreen(
     novelId: Long,
     chapterId: Long,
     onBack: () -> Unit,
+    /**
+     * Bloc à rejoindre et à surligner à l'ouverture ; -1 = ouverture normale.
+     * Alimenté par « Aller au passage » depuis la collection de citations.
+     */
+    highlightBlock: Int = -1,
     modifier: Modifier = Modifier,
     viewModel: ReaderViewModel = viewModel(factory = vmFactory { ReaderViewModel(novelId, chapterId) }),
 ) {
@@ -122,6 +155,53 @@ fun ReaderScreen(
     var settingsVisible by rememberSaveable { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
+
+    // Discussion du chapitre (#41) : un ViewModel par chapitre — la clé change avec lui,
+    // donc changer de chapitre donne un fil neuf sans qu'on ait à le vider à la main.
+    val commentsChapterId = state.chapter?.id ?: 0L
+    val commentsViewModel: ChapterCommentsViewModel = viewModel(
+        key = "comments-$commentsChapterId",
+        factory = vmFactory { ChapterCommentsViewModel(commentsChapterId) },
+    )
+    val comments by commentsViewModel.state.collectAsState()
+
+    // Citer un passage : même clé de chapitre, état séparé — citer est un geste privé,
+    // commenter est public, mêler les deux obligerait chacun à connaître l'autre.
+    val quoteViewModel: ChapterQuoteViewModel = viewModel(
+        key = "quotes-$commentsChapterId",
+        factory = vmFactory { ChapterQuoteViewModel(commentsChapterId) },
+    )
+    val quote by quoteViewModel.state.collectAsState()
+    val quotingBlock = quote.blockIndex
+
+    // Réactions et commentaires de passage (#41, §4). État séparé lui aussi : les
+    // agrégats vivent le temps d'un chapitre, la citation le temps d'un geste.
+    val passageViewModel: PassageSocialViewModel = viewModel(
+        key = "passages-$commentsChapterId",
+        factory = vmFactory { PassageSocialViewModel(commentsChapterId) },
+    )
+    val passages by passageViewModel.state.collectAsState()
+
+    // Texte du bloc dont le panneau est ouvert. Il n'est plus AFFICHÉ — le passage est
+    // juste derrière, à l'écran — mais « Citer » en a besoin. Même découpage que le
+    // lecteur, donc même index : c'est toute la raison d'avoir factorisé la règle.
+    val chapterBlocks = remember(state.chapter?.content) {
+        state.chapter?.content?.let { readerBlocks(it) } ?: emptyList()
+    }
+    var lastThreadBlock by remember(commentsChapterId) { mutableIntStateOf(-1) }
+    LaunchedEffect(passages.threadBlock) {
+        passages.threadBlock?.let { lastThreadBlock = it }
+    }
+
+    // Position verticale de chaque bloc dans la page, relevée à la mise en page :
+    // c'est ce qui permet de se rendre à un passage précis sans le chercher.
+    val blockOffsets = remember(state.chapter?.id) { mutableStateMapOf<Int, Int>() }
+    var highlightedBlock by remember(state.chapter?.id) { mutableIntStateOf(-1) }
+    val highlightAlpha by animateFloatAsState(
+        targetValue = if (highlightedBlock >= 0) 1f else 0f,
+        animationSpec = tween(durationMillis = 600),
+        label = "highlightAlpha",
+    )
 
     // Confort de lecture réglé ici même (engrenage) ou dans Profil › Lecture : c'est le
     // même stockage, donc les deux écrans restent d'accord sans effort.
@@ -139,7 +219,9 @@ fun ReaderScreen(
 
     // Mode plein écran : masque les barres système, rendues à nouveau visibles quand
     // les commandes du lecteur sont affichées (un tap) ou à la sortie de l'écran.
-    val chromeOrSettings = chromeVisible || settingsVisible
+    val chromeOrSettings =
+        chromeVisible || settingsVisible || comments.composerOpen || quotingBlock != null ||
+            passages.threadBlock != null
     DisposableEffect(readerPrefs.reader.fullscreen, chromeOrSettings) {
         val window = (view.context as? android.app.Activity)?.window
         val controller = window?.let { WindowInsetsControllerCompat(it, view) }
@@ -190,7 +272,9 @@ fun ReaderScreen(
         swiping = false
         swipeTarget = 0f
         scrollState.scrollTo(0)
-        val target = state.initialPercent
+        // Arrivée depuis une citation : la position de reprise ne doit pas voler la
+        // place au passage qu'on vient chercher.
+        val target = if (highlightBlock >= 0) 0 else state.initialPercent
         if (target in 1..99) {
             val max = withTimeoutOrNull(1500) {
                 snapshotFlow { scrollState.maxValue }.first { it != Int.MAX_VALUE && it > 0 }
@@ -205,6 +289,36 @@ fun ReaderScreen(
         }
     }
 
+    // Un tap referme d'abord ce qui est ouvert : sinon il faudrait viser le voile.
+    // Centralisé ici parce que les paragraphes interceptent désormais leurs propres
+    // taps (pour l'appui long) et doivent reproduire exactement le même arbitrage.
+    val onSurfaceTap: () -> Unit = {
+        when {
+            settingsVisible -> settingsVisible = false
+            comments.composerOpen -> commentsViewModel.closeComposer()
+            quotingBlock != null -> quoteViewModel.cancel()
+            passages.threadBlock != null -> passageViewModel.closeThread()
+            else -> chromeVisible = !chromeVisible
+        }
+    }
+
+    // Rejoint le bloc demandé dès qu'il est mesuré. La page du lecteur n'est pas une
+    // liste paresseuse : tous les blocs sont posés, donc leur position est connue —
+    // il suffit d'attendre la première mise en page.
+    LaunchedEffect(state.chapter?.id, highlightBlock, state.isLoading) {
+        if (highlightBlock < 0 || state.isLoading || state.chapter == null) return@LaunchedEffect
+        val y = withTimeoutOrNull(3000) {
+            snapshotFlow { blockOffsets[highlightBlock] }.first { it != null }
+        } ?: return@LaunchedEffect
+        // On s'arrête un peu au-dessus : un passage collé au bord haut de l'écran se
+        // lit mal, et on perd ce qui le précède.
+        scrollState.animateScrollTo((y - 160).coerceAtLeast(0))
+        chromeVisible = false
+        highlightedBlock = highlightBlock
+        delay(2600)
+        highlightedBlock = -1
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -212,10 +326,7 @@ fun ReaderScreen(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-            ) {
-                // Un tap referme d'abord les réglages : sinon il faudrait viser le voile.
-                if (settingsVisible) settingsVisible = false else chromeVisible = !chromeVisible
-            },
+            ) { onSurfaceTap() },
     ) {
         // Capturé une fois : évite un `return` depuis la lambda, qui sauterait aussi les
         // barres de commandes déclarées plus bas dans ce même Box.
@@ -233,9 +344,10 @@ fun ReaderScreen(
                         .fillMaxSize()
                         .draggable(
                             orientation = Orientation.Horizontal,
-                            // Le panneau de réglages a ses propres curseurs : un balayage
-                            // dessus ne doit pas changer de chapitre.
-                            enabled = !settingsVisible,
+                            // Les panneaux ont leurs propres gestes (curseurs, saisie) :
+                            // un balayage dessus ne doit pas changer de chapitre.
+                            enabled = !settingsVisible && !comments.composerOpen &&
+                                quotingBlock == null && passages.threadBlock == null,
                             state = rememberDraggableState { delta ->
                                 // Le texte suit le doigt au millimètre du côté où il y a
                                 // un chapitre ; de l'autre il « bute » (élastique très
@@ -268,8 +380,32 @@ fun ReaderScreen(
                         style = style,
                         previous = state.previousChapter,
                         next = state.nextChapter,
+                        comments = comments,
                         onOpenPrevious = viewModel::openPrevious,
                         onOpenNext = viewModel::openNext,
+                        onWriteComment = commentsViewModel::startNewThread,
+                        onReplyComment = commentsViewModel::startReply,
+                        onEditComment = commentsViewModel::startEdit,
+                        onDeleteComment = commentsViewModel::delete,
+                        onLoadMoreComments = commentsViewModel::loadMore,
+                        onRetryComments = commentsViewModel::load,
+                        highlightedBlock = highlightedBlock,
+                        highlightAlpha = highlightAlpha,
+                        // Mesure retenue au PREMIER passage seulement, quand le
+                        // défilement est encore à zéro : la position d'un bloc y vaut
+                        // directement sa cible de défilement. Et rien n'est relevé du
+                        // tout quand aucun passage n'est demandé.
+                        onBlockOffset = { index, y ->
+                            if (highlightBlock >= 0 && index !in blockOffsets) {
+                                blockOffsets[index] = y
+                            }
+                        },
+                        onSurfaceTap = onSurfaceTap,
+                        onSelectBlock = { index, _ -> passageViewModel.openThread(index) },
+                        activity = passages.activity,
+                        orphanedComments = passages.orphanedComments,
+                        showInTextComments = readerPrefs.reader.inTextComments,
+                        onOpenThread = passageViewModel::openThread,
                         modifier = Modifier
                             .fillMaxSize()
                             .offset { IntOffset(swipeOffset.roundToInt(), 0) }
@@ -433,6 +569,140 @@ fun ReaderScreen(
                 onReset = store::resetReader,
             )
         }
+
+        // ── Rédaction d'un commentaire (#41) ──
+        // Seule la SAISIE sort du fil du chapitre : la discussion, elle, se lit en place,
+        // sous « Fin du chapitre ». Voir ChapterCommentsSection pour le pourquoi.
+        AnimatedVisibility(
+            visible = comments.composerOpen,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            SheetScrim(
+                onDismiss = commentsViewModel::closeComposer,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        AnimatedVisibility(
+            visible = comments.composerOpen,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            CommentComposerSheet(
+                state = comments,
+                onDraftChange = commentsViewModel::setDraft,
+                onSend = commentsViewModel::send,
+                onClose = commentsViewModel::closeComposer,
+            )
+        }
+
+        // ── Panneau d'un passage : réactions + discussion + saisie (#41, §4) ──
+        val threadBlock = passages.threadBlock
+        AnimatedVisibility(
+            visible = threadBlock != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            SheetScrim(
+                onDismiss = passageViewModel::closeThread,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        AnimatedVisibility(
+            visible = threadBlock != null,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            val block = passages.activity[lastThreadBlock]
+            PassageThreadSheet(
+                state = passages,
+                reactions = block?.reactions.orEmpty(),
+                myEmoji = block?.myEmoji,
+                showComments = readerPrefs.reader.inTextComments,
+                onReact = passageViewModel::react,
+                onQuote = {
+                    val text = chapterBlocks.getOrNull(lastThreadBlock)
+                    passageViewModel.closeThread()
+                    if (text != null) quoteViewModel.start(lastThreadBlock, text)
+                },
+                onDelete = passageViewModel::delete,
+                onReply = passageViewModel::startReply,
+                onCancelReply = passageViewModel::cancelReply,
+                onDraftChange = passageViewModel::setDraft,
+                onToggleSpoiler = passageViewModel::toggleSpoiler,
+                onSend = passageViewModel::send,
+                onClose = passageViewModel::closeThread,
+            )
+        }
+
+        // ── Créer une citation (#41, §3) ──
+        AnimatedVisibility(
+            visible = quotingBlock != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            SheetScrim(
+                onDismiss = quoteViewModel::cancel,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        AnimatedVisibility(
+            visible = quotingBlock != null,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            QuoteComposerSheet(
+                blockText = quote.blockText,
+                isSaving = quote.isSaving,
+                error = quote.error,
+                onConfirm = quoteViewModel::save,
+                onDismiss = quoteViewModel::cancel,
+            )
+        }
+
+        // Accusé de réception d'une réaction : le panneau vient de se refermer, il
+        // faut bien que le geste laisse une trace. Posée en DERNIER dans le Box, donc
+        // au-dessus de tout — elle n'écoute aucun geste, les taps la traversent.
+        passages.celebration?.let { emoji ->
+            EmojiRain(emoji = emoji, onDone = passageViewModel::celebrationShown)
+        }
+
+        // Confirmation fugace : une citation est un geste discret, elle ne mérite ni
+        // boîte de dialogue ni changement d'écran.
+        val confirmation = quote.confirmation
+        AnimatedVisibility(
+            visible = confirmation != null,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 96.dp),
+        ) {
+            Surface(
+                color = MaterialTheme.colorScheme.inverseSurface,
+                shape = RoundedCornerShape(50),
+                tonalElevation = 6.dp,
+            ) {
+                Text(
+                    text = confirmation.orEmpty(),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.inverseOnSurface,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                )
+            }
+        }
+        LaunchedEffect(confirmation) {
+            if (confirmation != null) {
+                delay(2200)
+                quoteViewModel.confirmationShown()
+            }
+        }
     }
 }
 
@@ -444,18 +714,30 @@ private fun ChapterBody(
     style: ReaderStyle,
     previous: ChapterDto?,
     next: ChapterDto?,
+    comments: ChapterCommentsUiState,
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
+    onWriteComment: () -> Unit,
+    onReplyComment: (rootId: Long, pseudo: String?, mention: Boolean) -> Unit,
+    onEditComment: (comment: ChapterCommentDto, rootId: Long?) -> Unit,
+    onDeleteComment: (comment: ChapterCommentDto, rootId: Long?) -> Unit,
+    onLoadMoreComments: () -> Unit,
+    onRetryComments: () -> Unit,
+    highlightedBlock: Int,
+    highlightAlpha: Float,
+    onBlockOffset: (index: Int, y: Int) -> Unit,
+    onSurfaceTap: () -> Unit,
+    onSelectBlock: (index: Int, text: String) -> Unit,
+    activity: Map<Int, BlockActivityDto>,
+    /** Messages de passage dont l'ancre ne retrouve plus son paragraphe (#41, §2). */
+    orphanedComments: Long,
+    showInTextComments: Boolean,
+    onOpenThread: (index: Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Le texte est découpé en paragraphes pour pouvoir appliquer l'écart réglable entre
     // eux (un seul bloc de texte ne le permettrait pas).
-    val paragraphs = remember(chapter.content) {
-        chapter.content.split('\n')
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .ifEmpty { listOf(chapter.content) }
-    }
+    val paragraphs = remember(chapter.content) { readerBlocks(chapter.content) }
     val wordCount = remember(chapter.content) {
         chapter.content.split(' ', '\n', '\t').count { it.isNotBlank() }
     }
@@ -471,24 +753,73 @@ private fun ChapterBody(
         )
 
         Spacer(Modifier.height(26.dp))
+        val highlightColor = MaterialTheme.colorScheme.primary
         paragraphs.forEachIndexed { index, paragraph ->
             if (index > 0) Spacer(Modifier.height(style.paragraphSpacing))
-            Text(text = paragraph, style = style.textStyle, color = style.foreground)
+            val highlighted = index == highlightedBlock && highlightAlpha > 0.01f
+            // Le paragraphe est enveloppé pour pouvoir porter sa marque d'activité en
+            // dessous. C'est donc l'ENVELOPPE qui relève sa position : mesurée sur le
+            // texte, `positionInParent` donnerait sa place dans cette enveloppe (zéro)
+            // et non dans la colonne défilante — « aller au passage » ne défilerait
+            // plus nulle part.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onGloballyPositioned { coordinates ->
+                        onBlockOffset(index, coordinates.positionInParent().y.roundToInt())
+                    },
+            ) {
+                Text(
+                    text = paragraph,
+                    style = style.textStyle,
+                    color = style.foreground,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (highlighted) {
+                                Modifier.background(
+                                    color = highlightColor.copy(alpha = 0.20f * highlightAlpha),
+                                    shape = RoundedCornerShape(6.dp),
+                                )
+                            } else {
+                                Modifier
+                            },
+                        )
+                        // Le paragraphe intercepte ses propres gestes : il doit donc
+                        // reproduire le tap de la page, sinon les barres ne réagiraient
+                        // plus qu'entre les paragraphes.
+                        .pointerInput(index) {
+                            detectTapGestures(
+                                onTap = { onSurfaceTap() },
+                                onLongPress = { onSelectBlock(index, paragraph) },
+                            )
+                        },
+                )
+                activity[index]?.let { blockActivity ->
+                    BlockMark(
+                        activity = blockActivity,
+                        foreground = style.foreground,
+                        showComments = showInTextComments,
+                        onClick = {
+                            if (showInTextComments) onOpenThread(index)
+                            else onSelectBlock(index, paragraph)
+                        },
+                    )
+                }
+            }
         }
 
         Spacer(Modifier.height(44.dp))
         EndOfChapterLabel(foreground = style.foreground)
 
+        // Le texte peut aller jusqu'au bord (marge réglée à 0), pas les boutons : on leur
+        // rend le retrait qui manque pour qu'ils restent des boutons, et non des bandeaux
+        // collés aux tranches de l'écran.
+        val buttonInset = (14.dp - style.horizontalPadding).coerceAtLeast(0.dp)
+
         if (previous != null || next != null) {
             Spacer(Modifier.height(22.dp))
-            // Le texte peut aller jusqu'au bord (marge réglée à 0), pas les boutons : on
-            // leur rend le retrait qui manque pour qu'ils restent des boutons, et non des
-            // bandeaux collés aux tranches de l'écran.
-            Column(
-                modifier = Modifier.padding(
-                    horizontal = (14.dp - style.horizontalPadding).coerceAtLeast(0.dp),
-                ),
-            ) {
+            Column(modifier = Modifier.padding(horizontal = buttonInset)) {
                 if (previous != null) {
                     ChapterNavCard(
                         chapter = previous,
@@ -508,6 +839,34 @@ private fun ChapterBody(
                 }
             }
         }
+
+        // La discussion vient APRÈS la navigation : « chapitre suivant » reste l'action
+        // attendue en fin de lecture, on ne glisse pas un mur de messages devant elle.
+        Spacer(Modifier.height(34.dp))
+
+        // Les messages orphelins se posent juste avant la discussion : ce sont des
+        // messages, ils appartiennent donc à cet endroit — et nulle part dans le texte,
+        // puisque c'est précisément ce qui leur manque.
+        if (orphanedComments > 0) {
+            OrphanedCommentsNote(
+                count = orphanedComments,
+                foreground = style.foreground,
+                modifier = Modifier.padding(horizontal = buttonInset),
+            )
+            Spacer(Modifier.height(18.dp))
+        }
+
+        ChapterCommentsSection(
+            state = comments,
+            foreground = style.foreground,
+            onWrite = onWriteComment,
+            onReply = onReplyComment,
+            onEdit = onEditComment,
+            onDelete = onDeleteComment,
+            onLoadMore = onLoadMoreComments,
+            onRetry = onRetryComments,
+            modifier = Modifier.padding(horizontal = buttonInset),
+        )
 
         Spacer(Modifier.height(28.dp))
         Spacer(Modifier.navigationBarsPadding())
@@ -585,6 +944,60 @@ private fun EndOfChapterLabel(foreground: Color) {
 @Composable
 private fun Rule(color: Color, modifier: Modifier = Modifier) {
     Box(modifier = modifier.height(1.dp).background(color))
+}
+
+/**
+ * Les messages de passage devenus orphelins (#41, §2).
+ *
+ * <p>Un message de passage est accroché à l'**empreinte du texte** qu'il commente, pas à
+ * son numéro de paragraphe. Quand un chapitre est ré-ingéré et que ce texte a changé,
+ * l'ancre ne retrouve plus rien : plutôt que de reposer le message sur le paragraphe
+ * voisin — où il ne voudrait plus rien dire, voire dirait autre chose — le serveur le
+ * déclare orphelin et le laisse de côté.
+ *
+ * <p>Le compter ici est le minimum honnête : ces messages existent toujours, ils ne sont
+ * simplement plus rattachables. Les taire laisserait croire qu'ils ont été supprimés.
+ *
+ * <p>Rien à toucher, volontairement : il n'existe pas de route qui les liste, et pour
+ * cause — les afficher demanderait de dire *de quoi* ils parlent, or c'est exactement
+ * l'information perdue.
+ */
+@Composable
+private fun OrphanedCommentsNote(
+    count: Long,
+    foreground: Color,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        verticalAlignment = Alignment.Top,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.LinkOff,
+            contentDescription = null,
+            tint = foreground.copy(alpha = 0.35f),
+            // padding AVANT size : l'inverse rognerait l'icône au lieu de la décaler.
+            modifier = Modifier.padding(top = 1.dp).size(15.dp),
+        )
+        Spacer(Modifier.width(9.dp))
+        Column {
+            Text(
+                text = if (count > 1) {
+                    "$count messages ont perdu leur passage"
+                } else {
+                    "1 message a perdu son passage"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = foreground.copy(alpha = 0.5f),
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = "Le texte qu'ils commentaient n'est plus dans ce chapitre.",
+                style = MaterialTheme.typography.bodySmall,
+                color = foreground.copy(alpha = 0.32f),
+            )
+        }
+    }
 }
 
 /**

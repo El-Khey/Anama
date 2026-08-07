@@ -12,10 +12,30 @@
 #   public *;
 #}
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Une trace d'un build minifié est illisible sans ça : on garde les numéros de ligne,
+# et on masque le nom du fichier d'origine (R8 le remplace par « SourceFile »).
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# ── kotlinx.serialization ───────────────────────────────────────────────────
+# Retrofit, OkHttp et Coil embarquent leurs propres règles. kotlinx.serialization aussi,
+# mais elles reposent sur le `Companion` sérialiseur, que R8 peut écarter faute de voir
+# quelqu'un l'appeler : nos DTO ne sont instanciés que par réflexion, depuis Retrofit.
+# Un manque ici ne se voit PAS à la compilation — il se manifeste à l'exécution, en
+# release uniquement, par un « Serializer for class … not found ».
+-keepattributes *Annotation*, InnerClasses
+-dontnote kotlinx.serialization.**
+
+-keep,includedescriptorclasses class com.novelrealm.mobile.data.remote.dto.**$$serializer { *; }
+-keepclassmembers class com.novelrealm.mobile.data.remote.dto.** {
+    *** Companion;
+}
+-keepclasseswithmembers class com.novelrealm.mobile.data.remote.dto.** {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+
+# ── Retrofit ────────────────────────────────────────────────────────────────
+# Le type de retour de chaque méthode d'API est lu par réflexion sur la signature
+# générique : sans elle, Retrofit ne sait plus quoi désérialiser.
+-keepattributes Signature, Exceptions
+-keep,allowobfuscation interface com.novelrealm.mobile.data.remote.api.*

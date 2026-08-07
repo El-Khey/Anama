@@ -18,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Comment
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FormatAlignJustify
@@ -211,6 +212,20 @@ fun ReaderSettingsScreen(
                     subtitle = "Masque les barres système pendant la lecture",
                     checked = reader.fullscreen,
                     onCheckedChange = { v -> store.updateReader { it.copy(fullscreen = v) } },
+                )
+            }
+
+            Spacer(Modifier.height(20.dp))
+            SettingsSection(title = "Discussions") {
+                // Réglage de COMPTE, pas d'appareil : il part dans `preferences` avec
+                // les autres, donc le couper ici le coupe sur tous ses écrans.
+                SettingsSwitchRow(
+                    icon = Icons.AutoMirrored.Filled.Comment,
+                    title = "Commentaires dans le texte",
+                    subtitle = "Marques en marge des paragraphes commentés. " +
+                        "Les réactions et les citations restent.",
+                    checked = reader.inTextComments,
+                    onCheckedChange = { v -> store.updateReader { it.copy(inTextComments = v) } },
                 )
             }
 

@@ -14,6 +14,7 @@ import com.novelrealm.mobile.ui.profile.AppearanceScreen
 import com.novelrealm.mobile.ui.profile.EditProfileScreen
 import com.novelrealm.mobile.ui.profile.ReaderSettingsScreen
 import com.novelrealm.mobile.ui.profile.SettingsRoutes
+import com.novelrealm.mobile.ui.quotes.MyQuotesScreen
 import com.novelrealm.mobile.ui.reader.ReaderScreen
 import com.novelrealm.mobile.ui.reviews.ReviewsScreen
 
@@ -54,6 +55,16 @@ fun AppNavHost(onLogout: () -> Unit, modifier: Modifier = Modifier) {
         composable(SettingsRoutes.READER) {
             ReaderSettingsScreen(onBack = { navController.popBackStack() })
         }
+        composable(SettingsRoutes.MY_QUOTES) {
+            MyQuotesScreen(
+                onBack = { navController.popBackStack() },
+                // Le bloc est déjà résolu par le serveur : le lecteur n'a plus qu'à
+                // s'y rendre et le surligner.
+                onOpenPassage = { novelId, chapterId, block ->
+                    navController.navigate("reader/$novelId/$chapterId?block=$block")
+                },
+            )
+        }
 
         composable(
             route = "novel/{novelId}",
@@ -78,10 +89,16 @@ fun AppNavHost(onLogout: () -> Unit, modifier: Modifier = Modifier) {
             )
         }
         composable(
-            route = "reader/{novelId}/{chapterId}",
+            // `block` est un paramètre OPTIONNEL : les ouvertures normales du lecteur
+            // (bibliothèque, fiche, historique) continuent d'appeler la route sans lui.
+            route = "reader/{novelId}/{chapterId}?block={block}",
             arguments = listOf(
                 navArgument("novelId") { type = NavType.LongType },
                 navArgument("chapterId") { type = NavType.LongType },
+                navArgument("block") {
+                    type = NavType.IntType
+                    defaultValue = -1
+                },
             ),
         ) { entry ->
             val novelId = entry.arguments?.getLong("novelId") ?: return@composable
@@ -89,6 +106,7 @@ fun AppNavHost(onLogout: () -> Unit, modifier: Modifier = Modifier) {
             ReaderScreen(
                 novelId = novelId,
                 chapterId = chapterId,
+                highlightBlock = entry.arguments?.getInt("block") ?: -1,
                 onBack = { navController.popBackStack() },
             )
         }

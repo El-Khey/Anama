@@ -10,27 +10,34 @@ import com.novelrealm.mobile.data.remote.AuthInterceptor
 import com.novelrealm.mobile.data.remote.api.AuthApi
 import com.novelrealm.mobile.data.remote.api.CategoryApi
 import com.novelrealm.mobile.data.remote.api.ChapterApi
+import com.novelrealm.mobile.data.remote.api.CommentApi
 import com.novelrealm.mobile.data.remote.api.FavoriteApi
 import com.novelrealm.mobile.data.remote.api.HistoryApi
 import com.novelrealm.mobile.data.remote.api.LibraryApi
 import com.novelrealm.mobile.data.remote.api.NovelApi
 import com.novelrealm.mobile.data.remote.api.ProgressApi
+import com.novelrealm.mobile.data.remote.api.PassageApi
+import com.novelrealm.mobile.data.remote.api.QuoteApi
 import com.novelrealm.mobile.data.remote.api.ReviewApi
 import com.novelrealm.mobile.data.remote.api.UserApi
 import com.novelrealm.mobile.data.repository.AuthRepository
 import com.novelrealm.mobile.data.repository.CategoryRepository
 import com.novelrealm.mobile.data.repository.ChapterRepository
+import com.novelrealm.mobile.data.repository.CommentRepository
 import com.novelrealm.mobile.data.repository.FavoriteRepository
 import com.novelrealm.mobile.data.repository.HistoryRepository
 import com.novelrealm.mobile.data.repository.LibraryRepository
 import com.novelrealm.mobile.data.repository.NovelRepository
 import com.novelrealm.mobile.data.repository.ProgressRepository
+import com.novelrealm.mobile.data.repository.PassageRepository
+import com.novelrealm.mobile.data.repository.QuoteRepository
 import com.novelrealm.mobile.data.repository.ReviewRepository
 import com.novelrealm.mobile.data.repository.UserRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.serialization.json.Json
+import okhttp3.Dispatcher
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -86,6 +93,13 @@ object ServiceLocator {
 
     private val okHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            // OkHttp ne laisse par défaut que 5 appels simultanés vers un même hôte. Or
+            // nos écrans en lancent davantage d'un coup — la fiche d'un roman en ouvre
+            // huit en parallèle — et les surnuméraires attendaient qu'une place se
+            // libère. Sur le réseau d'un vrai téléphone, cela ajoute un aller-retour
+            // complet à l'affichage. Toute l'API tient sur un seul hôte : la limite par
+            // hôte n'a donc aucune raison d'être plus basse que la limite globale.
+            .dispatcher(Dispatcher().apply { maxRequestsPerHost = maxRequests })
             // Injecte le Bearer sur les appels authentifiés + déconnecte sur 401 (token expiré).
             .addInterceptor(AuthInterceptor(tokenStorage, onUnauthorized = { sessionManager.onUnauthorized() }))
             .addInterceptor(
@@ -109,6 +123,9 @@ object ServiceLocator {
     val novelApi: NovelApi by lazy { retrofit.create(NovelApi::class.java) }
     private val authApi: AuthApi by lazy { retrofit.create(AuthApi::class.java) }
     private val chapterApi: ChapterApi by lazy { retrofit.create(ChapterApi::class.java) }
+    private val commentApi: CommentApi by lazy { retrofit.create(CommentApi::class.java) }
+    private val quoteApi: QuoteApi by lazy { retrofit.create(QuoteApi::class.java) }
+    private val passageApi: PassageApi by lazy { retrofit.create(PassageApi::class.java) }
     private val libraryApi: LibraryApi by lazy { retrofit.create(LibraryApi::class.java) }
     private val progressApi: ProgressApi by lazy { retrofit.create(ProgressApi::class.java) }
     private val historyApi: HistoryApi by lazy { retrofit.create(HistoryApi::class.java) }
@@ -121,6 +138,9 @@ object ServiceLocator {
     val authRepository: AuthRepository by lazy { AuthRepository(authApi, sessionManager) }
     val novelRepository: NovelRepository by lazy { NovelRepository(novelApi) }
     val chapterRepository: ChapterRepository by lazy { ChapterRepository(chapterApi) }
+    val commentRepository: CommentRepository by lazy { CommentRepository(commentApi) }
+    val quoteRepository: QuoteRepository by lazy { QuoteRepository(quoteApi) }
+    val passageRepository: PassageRepository by lazy { PassageRepository(passageApi) }
     val libraryRepository: LibraryRepository by lazy { LibraryRepository(libraryApi) }
     val progressRepository: ProgressRepository by lazy { ProgressRepository(progressApi) }
     val historyRepository: HistoryRepository by lazy { HistoryRepository(historyApi) }

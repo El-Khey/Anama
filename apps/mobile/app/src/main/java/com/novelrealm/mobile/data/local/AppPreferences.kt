@@ -80,6 +80,19 @@ data class ReaderPrefs(
      * étroit. On ne touche donc pas à `widthId`, qui reste préservé tel quel.
      */
     val margin: Int = 20,               // 0..40 dp
+    /**
+     * Affiche (ou non) la couche **commentaires dans le texte** : les marques en marge
+     * des paragraphes commentés, les fils qu'elles ouvrent, et l'action « Commenter »
+     * de la barre de passage.
+     *
+     * Réglage de compte, pas d'appareil : il part dans `preferences` comme les autres,
+     * donc le couper sur le téléphone le coupe partout.
+     *
+     * Les **réactions ne sont pas concernées** : un emoji en marge tient en un
+     * caractère, il ne rompt pas la lecture comme un fil de discussion. Les citations
+     * non plus — citer est un geste solitaire, pas social.
+     */
+    val inTextComments: Boolean = true,
 ) {
     companion object {
         val DEFAULT = ReaderPrefs()

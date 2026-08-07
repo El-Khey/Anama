@@ -8,4 +8,8 @@ object SettingsRoutes {
     const val ACCOUNT = "settings/account"
     const val APPEARANCE = "settings/appearance"
     const val READER = "settings/reader"
+
+    // Pas un réglage, mais ouvert depuis l'onglet Profil par le même mécanisme :
+    // la collection de citations (#41, §3).
+    const val MY_QUOTES = "me/quotes"
 }
