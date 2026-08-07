@@ -43,6 +43,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.outlined.LinkOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -402,6 +403,7 @@ fun ReaderScreen(
                         onSurfaceTap = onSurfaceTap,
                         onSelectBlock = { index, _ -> passageViewModel.openThread(index) },
                         activity = passages.activity,
+                        orphanedComments = passages.orphanedComments,
                         showInTextComments = readerPrefs.reader.inTextComments,
                         onOpenThread = passageViewModel::openThread,
                         modifier = Modifier
@@ -727,6 +729,8 @@ private fun ChapterBody(
     onSurfaceTap: () -> Unit,
     onSelectBlock: (index: Int, text: String) -> Unit,
     activity: Map<Int, BlockActivityDto>,
+    /** Messages de passage dont l'ancre ne retrouve plus son paragraphe (#41, §2). */
+    orphanedComments: Long,
     showInTextComments: Boolean,
     onOpenThread: (index: Int) -> Unit,
     modifier: Modifier = Modifier,
@@ -839,6 +843,19 @@ private fun ChapterBody(
         // La discussion vient APRÈS la navigation : « chapitre suivant » reste l'action
         // attendue en fin de lecture, on ne glisse pas un mur de messages devant elle.
         Spacer(Modifier.height(34.dp))
+
+        // Les messages orphelins se posent juste avant la discussion : ce sont des
+        // messages, ils appartiennent donc à cet endroit — et nulle part dans le texte,
+        // puisque c'est précisément ce qui leur manque.
+        if (orphanedComments > 0) {
+            OrphanedCommentsNote(
+                count = orphanedComments,
+                foreground = style.foreground,
+                modifier = Modifier.padding(horizontal = buttonInset),
+            )
+            Spacer(Modifier.height(18.dp))
+        }
+
         ChapterCommentsSection(
             state = comments,
             foreground = style.foreground,
@@ -927,6 +944,60 @@ private fun EndOfChapterLabel(foreground: Color) {
 @Composable
 private fun Rule(color: Color, modifier: Modifier = Modifier) {
     Box(modifier = modifier.height(1.dp).background(color))
+}
+
+/**
+ * Les messages de passage devenus orphelins (#41, §2).
+ *
+ * <p>Un message de passage est accroché à l'**empreinte du texte** qu'il commente, pas à
+ * son numéro de paragraphe. Quand un chapitre est ré-ingéré et que ce texte a changé,
+ * l'ancre ne retrouve plus rien : plutôt que de reposer le message sur le paragraphe
+ * voisin — où il ne voudrait plus rien dire, voire dirait autre chose — le serveur le
+ * déclare orphelin et le laisse de côté.
+ *
+ * <p>Le compter ici est le minimum honnête : ces messages existent toujours, ils ne sont
+ * simplement plus rattachables. Les taire laisserait croire qu'ils ont été supprimés.
+ *
+ * <p>Rien à toucher, volontairement : il n'existe pas de route qui les liste, et pour
+ * cause — les afficher demanderait de dire *de quoi* ils parlent, or c'est exactement
+ * l'information perdue.
+ */
+@Composable
+private fun OrphanedCommentsNote(
+    count: Long,
+    foreground: Color,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        verticalAlignment = Alignment.Top,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.LinkOff,
+            contentDescription = null,
+            tint = foreground.copy(alpha = 0.35f),
+            // padding AVANT size : l'inverse rognerait l'icône au lieu de la décaler.
+            modifier = Modifier.padding(top = 1.dp).size(15.dp),
+        )
+        Spacer(Modifier.width(9.dp))
+        Column {
+            Text(
+                text = if (count > 1) {
+                    "$count messages ont perdu leur passage"
+                } else {
+                    "1 message a perdu son passage"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = foreground.copy(alpha = 0.5f),
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = "Le texte qu'ils commentaient n'est plus dans ce chapitre.",
+                style = MaterialTheme.typography.bodySmall,
+                color = foreground.copy(alpha = 0.32f),
+            )
+        }
+    }
 }
 
 /**
