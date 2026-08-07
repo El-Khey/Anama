@@ -54,7 +54,12 @@ dev:  ## Lance la stack en mode développement (hot-reload), en arrière-plan
 
 prod:  ## Lance la stack en mode production (détaché)
 	$(COMPOSE) $(PROD) up --build -d
-	@echo "Lancé. App : http://localhost:5173   API : http://localhost:8080"
+	@echo ""
+	@echo "Lancé. Adresses réelles (celles-ci viennent des conteneurs, pas d'un echo) :"
+	@$(COMPOSE) $(PROD) ps --format "  {{.Service}}\t{{.Status}}\t{{.Ports}}"
+	@echo ""
+	@echo "  Un service absent de cette liste n'a PAS démarré :"
+	@echo "    docker compose -p novelrealm logs --tail=40 <service>"
 
 down:  ## Arrête et supprime les conteneurs
 	$(COMPOSE) $(DEV) down
