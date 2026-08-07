@@ -54,7 +54,12 @@ CREATE TABLE IF NOT EXISTS chapters (
     content        TEXT NOT NULL,
     created_at     TIMESTAMP NOT NULL,                 -- "derniers chapitres" (Accueil)
     updated_at     TIMESTAMP NOT NULL,
-    UNIQUE (novel_id, chapter_number)                  -- pas deux fois le même n° pour un roman
+    -- Pas deux fois le même n° pour un roman. Contrainte NOMMÉE explicitement :
+    -- laissée anonyme, PostgreSQL la baptise « chapters_novel_id_chapter_number_key »,
+    -- alors que les bases déjà en service portent « chapters_novel_chapter_uq ». Même
+    -- contrainte, deux noms — et un nom, ça se référence (ON CONFLICT ON CONSTRAINT,
+    -- suppression d'index…). On fige donc celui qui existe déjà.
+    CONSTRAINT chapters_novel_chapter_uq UNIQUE (novel_id, chapter_number)
 );
 
 -- Genres : table de référence (Fantasy, Romance, …).
@@ -238,3 +243,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_passage_annotation_one_reaction_per_passage
 -- messages sont toujours là (#41, §2 : jamais de passage perdu en silence).
 CREATE INDEX IF NOT EXISTS idx_passage_annotation_thread
     ON passage_annotation (chapter_id, text_hash, kind, created_at);
+
+-- Les réponses d'un message racine (#41, §4). Sans cet index, afficher un fil
+-- parcourt toute la table pour retrouver les réponses de chaque message.
+--
+-- Il manquait ici alors que db/migrations/2026-08-05_passage_replies.sql le
+-- crée : une base neuve avait donc la colonne parent_id — déclarée plus haut
+-- dans le CREATE TABLE — mais pas son index. Exemple concret de ce que coûte
+-- de décrire le même schéma à deux endroits ; « make check-schema » compare
+-- désormais les deux chemins pour que ça ne repasse plus inaperçu.
+CREATE INDEX IF NOT EXISTS idx_passage_annotation_parent
+    ON passage_annotation (parent_id);

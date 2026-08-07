@@ -32,3 +32,5 @@ dist-ssr/
 
 .claude
 mihon 
+# Sauvegardes de la base : volumineuses, et contiennent des données utilisateur.
+db/backups/
