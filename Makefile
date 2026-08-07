@@ -55,11 +55,18 @@ dev:  ## Lance la stack en mode développement (hot-reload), en arrière-plan
 prod:  ## Lance la stack en mode production (détaché)
 	$(COMPOSE) $(PROD) up --build -d
 	@echo ""
-	@echo "Lancé. Adresses réelles (celles-ci viennent des conteneurs, pas d'un echo) :"
+	@echo "Adresses réelles (lues sur les conteneurs, pas un message figé) :"
 	@$(COMPOSE) $(PROD) ps --format "  {{.Service}}\t{{.Status}}\t{{.Ports}}"
 	@echo ""
-	@echo "  Un service absent de cette liste n'a PAS démarré :"
-	@echo "    docker compose -p novelrealm logs --tail=40 <service>"
+	# L'aide au diagnostic ne s'affiche QUE s'il manque un service. Affichée à
+	# chaque fois, elle ressemblait à une erreur alors que tout allait bien.
+	@UP=$$($(COMPOSE) $(PROD) ps --status running --format "{{.Service}}" | wc -l); \
+	if [ "$$UP" -eq 3 ]; then \
+		echo "  Les 3 services tournent."; \
+	else \
+		echo "  ⚠  $$UP service(s) sur 3 seulement. Pour voir pourquoi :"; \
+		echo "     docker compose -p novelrealm logs --tail=40 <service>"; \
+	fi
 
 down:  ## Arrête et supprime les conteneurs
 	$(COMPOSE) $(DEV) down
@@ -218,18 +225,33 @@ restore:  ## Restaure une sauvegarde : make restore FILE=db/backups/<fichier>.du
 	@$(COMPOSE) exec -T postgres pg_restore -U novelrealm -d novelrealm \
 		--clean --if-exists --no-owner < $(FILE) && echo "Restauré depuis $(FILE)"
 
+# =====================================================================
+#  Importe un roman depuis LightNovelWorld, en tâche one-shot.
+#
+#  Tourne sur l'IMAGE DE PRODUCTION (le .jar déjà compilé), et non plus via
+#  Gradle. Trois raisons :
+#
+#   • Ça marchait uniquement après `make dev`. Sur un serveur lancé avec
+#     `make prod`, l'image contient un .jar et le mode dev montait le code
+#     source PAR-DESSUS /app, ce qui masquait ce .jar :
+#     « Error: Unable to access jarfile app.jar ». Les deux modes partagent
+#     le même nom d'image, ils se marchaient dessus.
+#   • Plus de Gradle = plus de conflit de verrou avec l'API qui tourne, donc
+#     toute la mécanique de caches dédiés devient inutile.
+#   • Bien plus rapide : rien à compiler, on lance un jar.
+#
+#  `--build` garantit que l'image de prod existe et est à jour, quel que soit
+#  le mode lancé juste avant. Les couches sont en cache : c'est quasi instantané
+#  si rien n'a changé.
+#
+#  Le job s'arrête tout seul quand il a fini (IngestionRunner appelle System.exit),
+#  et `--rm` supprime le conteneur derrière lui.
+# =====================================================================
 ingest:  ## Importe un roman LightNovelWorld (ex: make ingest SLUG=shadow-slave [MAX=100])
 	@test -n "$(SLUG)" || { echo "Usage : make ingest SLUG=<slug> [MAX=50]   (slug = .../novel/<slug>/)"; exit 1; }
 	@echo "Ingestion one-shot de '$(SLUG)' (max $(MAX) chapitres)…"
-	# L'API `dev` tourne déjà et tient les verrous Gradle. Pour coexister sans
-	# conflit, l'ingestion utilise des caches Gradle DÉDIÉS (un volume à elle) :
-	#   - GRADLE_USER_HOME=/gradle-ingest  → cache global (deps) séparé de /root/.gradle
-	#   - --project-cache-dir              → cache PROJET séparé de /app/.gradle (monté)
-	# Sans ça : "Timeout waiting to lock ... It is currently in use by another Gradle instance".
-	$(COMPOSE) $(DEV) run --rm \
-		-e SPRING_PROFILES_ACTIVE=dev,ingest \
+	$(COMPOSE) $(PROD) run --rm --build \
+		-e SPRING_PROFILES_ACTIVE=ingest \
 		-e NOVELREALM_INGESTION_SLUG=$(SLUG) \
 		-e NOVELREALM_INGESTION_MAX_CHAPTERS=$(MAX) \
-		-e GRADLE_USER_HOME=/gradle-ingest \
-		-v novelrealm_gradle_ingest:/gradle-ingest \
-		api ./gradlew bootRun --no-daemon --project-cache-dir /gradle-ingest/project-cache
+		api
