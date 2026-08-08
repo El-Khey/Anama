@@ -39,3 +39,20 @@
 # générique : sans elle, Retrofit ne sait plus quoi désérialiser.
 -keepattributes Signature, Exceptions
 -keep,allowobfuscation interface com.novelrealm.mobile.data.remote.api.*
+
+# ── Annotations absentes à l'exécution ──────────────────────────────────────
+# Tink — le moteur de chiffrement derrière EncryptedSharedPreferences, donc
+# derrière notre TokenStorage — référence des annotations d'ErrorProne qui
+# n'existent qu'à la COMPILATION et ne sont pas embarquées dans l'APK. R8 le
+# signale, et refuse de terminer.
+#
+# `-dontwarn` est la bonne réponse ici, pas `-keep` : on ne demande pas de
+# conserver ces classes (elles n'existent pas), on dit que leur absence est
+# attendue. Rien n'y fait appel à l'exécution.
+#
+# Liste produite par AGP lui-même, à relire si d'autres apparaissent un jour :
+#   app/build/outputs/mapping/release/missing_rules.txt
+-dontwarn com.google.errorprone.annotations.CanIgnoreReturnValue
+-dontwarn com.google.errorprone.annotations.CheckReturnValue
+-dontwarn com.google.errorprone.annotations.Immutable
+-dontwarn com.google.errorprone.annotations.RestrictedApi
