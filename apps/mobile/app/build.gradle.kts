@@ -65,7 +65,7 @@ android {
         // d'installer par-dessus un versionCode égal ou supérieur — et sans mise à jour
         // possible, la seule issue devient la désinstallation, qui, elle, efface les
         // données locales. versionName ne sert qu'à l'affichage.
-        versionCode = 1
+        versionCode = 2
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
