@@ -57,11 +57,21 @@ public class PassageSocialService {
      * dictionnaire ouvert — et la marge du lecteur reste lisible. Un sélecteur complet
      * produirait une longue traîne d'emojis vus une fois, qui n'apprend rien à personne.
      *
-     * <p><b>Doit rester identique à {@code PassageEmojis} côté mobile.</b> L'ordre
-     * compte aussi : c'est lui qui fixe l'ordre d'affichage, pour que les emojis ne
-     * sautent pas de place quand les compteurs changent.
+     * <p><b>Doit rester identique à {@code PassageRepository.EMOJIS} côté mobile.</b>
+     * L'ordre compte aussi : c'est lui qui fixe l'ordre d'affichage, pour que les emojis
+     * ne sautent pas de place quand les compteurs changent.
+     *
+     * <p>Le jeu est tourné vers la <b>lecture</b> : ❤️ j'adore · 😂 drôle ·
+     * 🤯 le retournement · 😭 ça m'a brisé · 🔥 ça envoie · 😱 glaçant. Les deux
+     * réactions propres au roman — le retournement et le frisson — manquaient au jeu
+     * d'origine, hérité des réseaux sociaux généralistes.
+     *
+     * <p>⚠️ <b>Changer cette liste ne suffit pas.</b> Les réactions déjà posées portent
+     * l'ancien emoji en base ; il faut une migration qui les réécrive, sinon leurs
+     * compteurs cessent simplement d'être renvoyés. Voir
+     * {@code db/migrations/2026-08-09_reaction_emojis.sql}.
      */
-    public static final List<String> ALLOWED_EMOJIS = List.of("❤️", "😂", "😮", "😢", "🔥", "💀");
+    public static final List<String> ALLOWED_EMOJIS = List.of("❤️", "😂", "🤯", "😭", "🔥", "😱");
 
     /**
      * Délai minimal entre deux commentaires de passage. Plus court que les 15 s de fin
@@ -380,10 +390,25 @@ public class PassageSocialService {
         }
 
         List<EmojiTallyResponse> tallies() {
-            return ALLOWED_EMOJIS.stream()
-                    .filter(counts::containsKey)
-                    .map(emoji -> new EmojiTallyResponse(emoji, counts.get(emoji)))
-                    .toList();
+            // Les emojis du jeu d'abord, dans SON ordre — c'est lui qui fixe la
+            // disposition des tuiles.
+            List<EmojiTallyResponse> ordered = new ArrayList<>(
+                    ALLOWED_EMOJIS.stream()
+                            .filter(counts::containsKey)
+                            .map(emoji -> new EmojiTallyResponse(emoji, counts.get(emoji)))
+                            .toList());
+
+            // Puis ceux qui ne sont plus proposés. Ils EXISTENT en base : les taire
+            // ferait fondre des compteurs sans que personne comprenne pourquoi — c'est
+            // exactement ce qui se produisait avant, quand ce filtre était définitif.
+            // En temps normal la liste est vide : la migration qui accompagne tout
+            // changement de jeu réécrit les anciennes réactions.
+            counts.forEach((emoji, total) -> {
+                if (!ALLOWED_EMOJIS.contains(emoji)) {
+                    ordered.add(new EmojiTallyResponse(emoji, total));
+                }
+            });
+            return List.copyOf(ordered);
         }
 
         BlockActivityResponse toResponse(int blockIndex) {

@@ -8,6 +8,7 @@ import com.novelrealm.model.LibraryEntry;
 import com.novelrealm.model.LibraryEntry.ReadingStatus;
 import com.novelrealm.model.Novel;
 import com.novelrealm.model.User;
+import com.novelrealm.repository.CategoryRepository;
 import com.novelrealm.repository.LibraryEntryRepository;
 
 import org.springframework.stereotype.Service;
@@ -26,14 +27,17 @@ import org.springframework.transaction.annotation.Transactional;
 public class LibraryEntryService {
 
     private final LibraryEntryRepository libraryEntryRepository;
+    private final CategoryRepository categoryRepository;
     private final UserService userService;
     private final NovelService novelService;
 
     public LibraryEntryService(
             LibraryEntryRepository libraryEntryRepository,
+            CategoryRepository categoryRepository,
             UserService userService,
             NovelService novelService) {
         this.libraryEntryRepository = libraryEntryRepository;
+        this.categoryRepository = categoryRepository;
         this.userService = userService;
         this.novelService = novelService;
     }
@@ -77,13 +81,30 @@ public class LibraryEntryService {
     }
 
     /**
-     * Retire un roman de la bibliothèque de l'utilisateur.
+     * Retire un roman de la bibliothèque de l'utilisateur — et de <b>toutes</b> ses
+     * étagères au passage.
+     *
+     * <p>Le nettoyage des étagères n'est pas un supplément : une étagère ne range que des
+     * romans suivis. Sans lui, le roman disparaissait de la bibliothèque mais restait
+     * rangé dans ses étagères, où l'app continuait de l'afficher — et le rechargement
+     * suivant le renvoyait, puisque la table de jointure le contenait toujours.
+     *
+     * <p>C'est {@link com.novelrealm.model.Category} qui porte la {@code @JoinTable} :
+     * on agit donc sur son {@code Set<Novel>}, et le {@code DELETE} dans
+     * {@code category_novel} part au flush de cette transaction. Suppression par
+     * identifiant plutôt que par instance, pour ne pas dépendre de l'{@code equals}
+     * de {@code Novel}.
      *
      * @throws LibraryEntryNotFoundException si le roman n'y est pas.
      */
     @Transactional
     public void remove(String email, Long novelId) {
         LibraryEntry entry = getOwnedEntry(email, novelId);
+
+        categoryRepository.findByUserIdOrderByNameAsc(entry.getUser().getId())
+                .forEach(category -> category.getNovels()
+                        .removeIf(novel -> novel.getId().equals(novelId)));
+
         libraryEntryRepository.delete(entry);
     }
 
