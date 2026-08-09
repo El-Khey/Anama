@@ -50,8 +50,21 @@ class PassageRepository(private val passageApi: PassageApi) {
         safeApiCall { passageApi.delete(annotationId) }
 
     companion object {
-        /** Jeu d'emojis fermé — miroir exact du back, ordre compris. */
-        val EMOJIS = listOf("❤️", "😂", "😮", "😢", "🔥", "💀")
+        /**
+         * Jeu d'emojis fermé — miroir exact du back, ordre compris.
+         *
+         * <p>Six exactement : `ReactionRow` en fait six tuiles de largeur égale, un
+         * septième les comprimerait ou imposerait un défilement horizontal.
+         *
+         * <p>Le jeu est tourné vers la **lecture** : ❤️ j'adore · 😂 drôle ·
+         * 🤯 le retournement · 😭 ça m'a brisé · 🔥 ça envoie · 😱 glaçant.
+         *
+         * <p>⚠️ Le modifier demande trois gestes, jamais un seul :
+         * ici, dans `PassageSocialService.ALLOWED_EMOJIS`, et une migration qui
+         * réécrit les réactions déjà posées — le back ne renvoie les compteurs que
+         * pour les emojis de cette liste.
+         */
+        val EMOJIS = listOf("❤️", "😂", "🤯", "😭", "🔥", "😱")
 
         /** Longueur maximale d'un message de passage — miroir de `MAX_BODY_LENGTH`. */
         const val MAX_BODY_LENGTH = 1_000

@@ -119,6 +119,37 @@ class ExploreViewModel : ViewModel() {
         }
     }
 
+    /**
+     * Suit ou arrête de suivre un roman depuis sa carte, sans ouvrir sa fiche.
+     *
+     * <p>Le statut initial est laissé au serveur, qui applique `PLAN_TO_READ` : un cœur
+     * touché dans le catalogue veut dire « je le garde pour plus tard », pas « je le lis ».
+     * Choisir un autre statut reste possible depuis la fiche ou la bibliothèque.
+     *
+     * <p>Bascule **optimiste** : le cœur se remplit à l'instant. Un aller-retour réseau
+     * avant de réagir se sentirait à chaque appui, et l'échec est rattrapé en rechargeant
+     * la vérité du serveur.
+     */
+    fun toggleLibrary(novelId: Long) {
+        val wasIn = novelId in _state.value.libraryNovelIds
+        _state.update { s ->
+            s.copy(
+                libraryNovelIds = if (wasIn) s.libraryNovelIds - novelId
+                else s.libraryNovelIds + novelId,
+            )
+        }
+        viewModelScope.launch {
+            // Les deux routes ne renvoient pas le même type : chaque appel est testé sur
+            // place plutôt que de chercher un supertype commun aux deux résultats.
+            val failed = if (wasIn) {
+                libraryRepo.remove(novelId) is ApiResult.Error
+            } else {
+                libraryRepo.add(novelId) is ApiResult.Error
+            }
+            if (failed) refreshLibraryFlags()
+        }
+    }
+
     // Recherche débouncée : on relance le catalogue 350 ms après la dernière frappe.
     fun onQueryChange(query: String) {
         _state.update { it.copy(query = query) }

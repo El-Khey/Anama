@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -54,6 +55,13 @@ fun NovelGridItem(
     readFraction: Float? = null,
     /** Marque le roman comme déjà suivi (utile dans le catalogue). */
     inLibrary: Boolean = false,
+    /**
+     * Rend le cœur **actionnable** : il s'affiche alors sur toutes les cartes — plein si
+     * le roman est suivi, en contour sinon — et l'appui bascule le suivi sans ouvrir la
+     * fiche. Laissé à `null`, le cœur reste un simple témoin, visible seulement quand le
+     * roman est déjà en bibliothèque.
+     */
+    onToggleLibrary: (() -> Unit)? = null,
     selected: Boolean = false,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -145,23 +153,41 @@ fun NovelGridItem(
             }
         }
 
-        // Cœur discret en haut à gauche : dans le catalogue, savoir ce qu'on suit déjà
-        // évite de rouvrir des fiches pour rien.
-        if (inLibrary) {
+        // Cœur en haut à gauche. Simple témoin par défaut ; bouton dès qu'on fournit
+        // `onToggleLibrary`, pour suivre un roman sans ouvrir sa fiche.
+        //
+        // Son `clickable` est posé sur un enfant de la carte : Compose distribue les
+        // pointeurs aux enfants d'abord, l'appui sur le cœur est donc consommé ici et ne
+        // remonte ni au `detectTapGestures` de la carte, ni à l'appui long.
+        if (inLibrary || onToggleLibrary != null) {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(6.dp)
-                    .size(22.dp)
+                    .padding(4.dp)
+                    // Pastille plus large quand elle est cliquable : 22 dp restaient sous
+                    // les 32 dp qu'un doigt vise sans se concentrer.
+                    .size(if (onToggleLibrary != null) 32.dp else 22.dp)
                     .clip(CircleShape)
-                    .background(Color(0xB3000000)),
+                    .background(Color(0xB3000000))
+                    .then(
+                        if (onToggleLibrary != null) {
+                            Modifier.clickable(onClick = onToggleLibrary)
+                        } else {
+                            Modifier
+                        },
+                    ),
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Favorite,
-                    contentDescription = "Déjà dans ta bibliothèque",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(13.dp),
+                    imageVector = if (inLibrary) Icons.Filled.Favorite
+                    else Icons.Filled.FavoriteBorder,
+                    contentDescription = when {
+                        onToggleLibrary == null -> "Déjà dans ta bibliothèque"
+                        inLibrary -> "Retirer de ta bibliothèque"
+                        else -> "Ajouter à ta bibliothèque"
+                    },
+                    tint = if (inLibrary) MaterialTheme.colorScheme.primary else Color.White,
+                    modifier = Modifier.size(if (onToggleLibrary != null) 17.dp else 13.dp),
                 )
             }
         }

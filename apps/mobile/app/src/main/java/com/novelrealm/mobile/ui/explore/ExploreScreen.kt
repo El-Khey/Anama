@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -68,6 +69,7 @@ import com.novelrealm.mobile.ui.components.EmptyScreen
 import com.novelrealm.mobile.ui.components.LoadingScreen
 import com.novelrealm.mobile.ui.components.NovelGridItem
 import com.novelrealm.mobile.ui.components.SegmentedChoice
+import com.novelrealm.mobile.ui.components.selectionStyle
 import com.novelrealm.mobile.ui.components.SheetScrim
 
 /**
@@ -78,8 +80,8 @@ import com.novelrealm.mobile.ui.components.SheetScrim
  * eux, vivent dans un panneau qu'on ouvre — ils encombraient la barre pour un usage bien
  * plus rare.
  *
- * Une carte marquée d'un cœur est déjà dans ta bibliothèque : on voit ce qu'on suit sans
- * ouvrir les fiches une par une.
+ * Le **cœur** de chaque carte suit ou arrête de suivre le roman d'un seul appui : on voit
+ * ce qu'on suit déjà, et on l'ajoute sans jamais ouvrir la fiche.
  */
 @Composable
 fun ExploreScreen(
@@ -156,6 +158,7 @@ fun ExploreScreen(
                         pageError = state.pageError,
                         endReached = state.endReached,
                         onNovelClick = onNovelClick,
+                        onToggleLibrary = viewModel::toggleLibrary,
                         onLoadMore = viewModel::loadNextPage,
                     )
                 }
@@ -330,23 +333,23 @@ private fun Pill(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val shape = RoundedCornerShape(12.dp)
+    val style = selectionStyle(selected)
     Surface(
-        color = if (selected) MaterialTheme.colorScheme.primary
-        else MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(12.dp),
-        modifier = modifier,
+        color = style.container,
+        shape = shape,
+        modifier = modifier.border(1.dp, style.border, shape),
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            color = if (selected) MaterialTheme.colorScheme.onPrimary
-            else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = style.content,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
             modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
+                .clip(shape)
                 .clickable(onClick = onClick)
                 .padding(horizontal = 14.dp, vertical = 9.dp),
         )
@@ -428,6 +431,7 @@ private fun NovelGrid(
     pageError: String?,
     endReached: Boolean,
     onNovelClick: (Long) -> Unit,
+    onToggleLibrary: (Long) -> Unit,
     onLoadMore: () -> Unit,
 ) {
     val gridState = rememberLazyGridState()
@@ -458,6 +462,7 @@ private fun NovelGrid(
                 title = novel.title,
                 coverUrl = novel.coverImageUrl,
                 inLibrary = novel.id in libraryNovelIds,
+                onToggleLibrary = { onToggleLibrary(novel.id) },
                 onClick = { onNovelClick(novel.id) },
             )
         }
@@ -605,11 +610,12 @@ private fun SortOption(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val shape = RoundedCornerShape(13.dp)
+    val style = selectionStyle(selected)
     Surface(
-        color = if (selected) MaterialTheme.colorScheme.primary
-        else MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(13.dp),
-        modifier = modifier,
+        color = style.container,
+        shape = shape,
+        modifier = modifier.border(1.dp, style.border, shape),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -621,7 +627,7 @@ private fun SortOption(
                 Icon(
                     Icons.Filled.Check,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimary,
+                    tint = style.content,
                     modifier = Modifier.size(16.dp),
                 )
                 Spacer(Modifier.width(6.dp))
@@ -630,8 +636,7 @@ private fun SortOption(
                 text = label,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                color = if (selected) MaterialTheme.colorScheme.onPrimary
-                else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = style.content,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )

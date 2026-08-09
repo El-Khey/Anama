@@ -280,7 +280,17 @@ class NovelDetailViewModel(private val novelId: Long) : ViewModel() {
 
     // ── Sélection multiple ──
 
+    /**
+     * Dernier chapitre coché à la main : c'est l'**ancre** des sélections par plage.
+     *
+     * <p>Dans le ViewModel et non dans l'état : ce n'est pas une donnée d'affichage, rien
+     * à l'écran ne la représente. La sortir dans `NovelDetailUiState` ferait recomposer
+     * toute la liste à chaque appui, pour une valeur que personne ne lit.
+     */
+    private var selectionAnchorId: Long? = null
+
     fun toggleSelection(chapterId: Long) {
+        selectionAnchorId = chapterId
         _state.update { state ->
             state.copy(
                 selectedChapterIds = if (chapterId in state.selectedChapterIds) {
@@ -292,11 +302,69 @@ class NovelDetailViewModel(private val novelId: Long) : ViewModel() {
         }
     }
 
+    /**
+     * Coche d'un coup tous les chapitres entre l'ancre et celui-ci, bornes comprises.
+     *
+     * <p>C'est le geste qui rend la sélection utilisable : cocher quarante chapitres un
+     * par un ne se fait pas. La plage est calculée sur l'ordre **naturel** des chapitres,
+     * pas sur l'ordre d'affichage — inverser le tri ne change pas l'ensemble compris
+     * entre deux chapitres, seulement le sens dans lequel on le parcourt.
+     *
+     * <p>Sans ancre (premier appui long), on retombe simplement sur une sélection simple.
+     */
+    fun selectRangeTo(chapterId: Long) {
+        val snapshot = _state.value
+        val anchor = selectionAnchorId
+        if (anchor == null || snapshot.selectedChapterIds.isEmpty()) {
+            toggleSelection(chapterId)
+            return
+        }
+        val from = snapshot.chapters.indexOfFirst { it.id == anchor }
+        val to = snapshot.chapters.indexOfFirst { it.id == chapterId }
+        if (from < 0 || to < 0) {
+            toggleSelection(chapterId)
+            return
+        }
+        val range = snapshot.chapters
+            .subList(minOf(from, to), maxOf(from, to) + 1)
+            .map { it.id }
+        selectionAnchorId = chapterId
+        _state.update { it.copy(selectedChapterIds = it.selectedChapterIds + range) }
+    }
+
     fun selectAll() {
         _state.update { it.copy(selectedChapterIds = it.chapters.map { c -> c.id }.toSet()) }
     }
 
+    /**
+     * Coche ce qui ne l'est pas, et inversement. Utile dans le sens « tout sauf ceux-là » :
+     * on coche la poignée d'exceptions, puis on inverse.
+     */
+    fun invertSelection() {
+        _state.update { state ->
+            state.copy(
+                selectedChapterIds = state.chapters.map { it.id }.toSet() - state.selectedChapterIds,
+            )
+        }
+    }
+
+    /**
+     * Marque comme lus tous les chapitres jusqu'au **plus avancé** de la sélection.
+     *
+     * <p>Le repère est le numéro de chapitre, pas la position dans la liste affichée :
+     * l'action doit donner le même résultat quel que soit le sens du tri.
+     */
+    fun markUpToSelection() {
+        val selected = _state.value.selectedChapterIds
+        val furthest = _state.value.chapters
+            .filter { it.id in selected }
+            .maxByOrNull { it.chapterNumber }
+            ?: return
+        markUpToRead(furthest.id)
+    }
+
     fun clearSelection() {
+        selectionAnchorId = null
         _state.update { it.copy(selectedChapterIds = emptySet()) }
     }
 

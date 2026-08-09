@@ -50,6 +50,19 @@ class PreferencesStore(
     private var syncJob: Job? = null
 
     /**
+     * Vrai dès qu'un réglage fait **sur ce téléphone** n'a pas encore été confirmé par le
+     * serveur. C'est le garde-fou de [hydrateFromRemote] — voir son commentaire : sans
+     * lui, un choix pouvait revenir en arrière tout seul, quelques centaines de
+     * millisecondes après avoir été fait.
+     *
+     * <p>`@Volatile` parce que les deux sens s'écrivent depuis des fils différents : levé
+     * depuis l'interface, abaissé depuis la coroutine d'envoi, qui tourne sur
+     * `Dispatchers.IO`.
+     */
+    @Volatile
+    private var hasUnsyncedLocalChange = false
+
+    /**
      * Police choisie sur le web que le mobile ne sait pas rendre (le web propose par
      * exemple une police « dyslexique »). On l'affiche avec notre police par défaut,
      * mais on la **réécrit telle quelle** lors de la synchronisation : sans ça, ouvrir
@@ -81,6 +94,7 @@ class PreferencesStore(
         if (next.reader.font != previous.reader.font) unsupportedRemoteFontId = null
         _prefs.value = next
         writeLocal(next)
+        hasUnsyncedLocalChange = true
         scheduleSync()
     }
 
@@ -88,11 +102,28 @@ class PreferencesStore(
 
     /**
      * Applique les préférences venues du compte (appelé après un `GET /users/me`).
-     * Le local est écrasé par le distant : c'est le compte qui fait foi au chargement.
+     * Le local est écrasé par le distant : c'est le compte qui fait foi **au chargement**.
+     *
+     * <p><b>Sauf si un réglage local n'est pas encore parti.</b> C'était le bug : on
+     * changeait le thème dans Profil › Apparence, il s'appliquait aussitôt, mais l'envoi
+     * au serveur attend [SYNC_DEBOUNCE_MS]. En revenant en arrière dans la seconde,
+     * l'écran Profil rentrait en composition, relançait son `GET /users/me`, et le
+     * serveur renvoyait l'ANCIENNE valeur — qui écrasait le choix qu'on venait de faire.
+     * Le réglage semblait « ne pas marcher », de temps en temps, sans rien à l'écran pour
+     * l'expliquer.
+     *
+     * <p>Pire encore : l'envoi débouché en attente construit sa charge utile APRÈS le
+     * délai, en relisant l'état courant. Il partait donc avec la valeur revenue en
+     * arrière, et confirmait la perte au serveur. Plus rien ne la rattrapait.
+     *
+     * <p>D'où la règle : tant qu'une intention locale n'a pas été communiquée, c'est elle
+     * qui fait foi. On garde tout de même l'objet distant comme base de fusion, pour ne
+     * pas perdre les clés propres au web au prochain envoi.
      */
     fun hydrateFromRemote(remote: JsonElement?) {
         val obj = remote as? JsonObject ?: return
         lastRemote = obj
+        if (hasUnsyncedLocalChange) return
 
         // Chaque clé ABSENTE laisse la valeur locale intacte : le web n'écrit que
         // `accent` et `reader`, il ne doit pas remettre à zéro un mode d'affichage
@@ -119,6 +150,10 @@ class PreferencesStore(
         syncJob?.cancel()
         lastRemote = JsonObject(emptyMap())
         unsupportedRemoteFontId = null
+        // Ce qui n'est pas parti ne partira plus : le compte a changé. Laisser le drapeau
+        // levé bloquerait l'hydratation du compte suivant, dont les réglages ne
+        // s'appliqueraient jamais.
+        hasUnsyncedLocalChange = false
     }
 
     // Envoi débouncé : on laisse retomber les rafales (glissement d'un slider) avant
@@ -129,7 +164,13 @@ class PreferencesStore(
             delay(SYNC_DEBOUNCE_MS)
             val payload = buildRemotePayload(_prefs.value)
             runCatching { pushToServer(payload) }   // best-effort : un échec est sans conséquence
-                .onSuccess { lastRemote = payload }
+                .onSuccess {
+                    lastRemote = payload
+                    // Le serveur connaît désormais notre choix : il peut de nouveau faire
+                    // foi. Un échec, lui, laisse le drapeau levé — l'intention locale
+                    // reste prioritaire tant qu'elle n'est pas passée.
+                    hasUnsyncedLocalChange = false
+                }
         }
     }
 

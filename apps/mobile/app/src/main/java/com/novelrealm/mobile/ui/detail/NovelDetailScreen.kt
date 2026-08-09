@@ -4,6 +4,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -45,6 +46,7 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Deselect
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -108,6 +110,7 @@ import com.novelrealm.mobile.data.remote.resolveImageUrl
 import com.novelrealm.mobile.ui.components.EmptyScreen
 import com.novelrealm.mobile.ui.components.LoadingScreen
 import com.novelrealm.mobile.ui.components.NovelCover
+import com.novelrealm.mobile.ui.components.selectionStyle
 import com.novelrealm.mobile.ui.util.ReadingStatus
 import com.novelrealm.mobile.ui.util.vmFactory
 import kotlin.math.abs
@@ -160,28 +163,80 @@ fun NovelDetailScreen(
 
         // Barre de sélection : remplace le bouton retour tant que des chapitres sont cochés.
         if (state.isSelecting) {
+            // Les actions de masse sont irréversibles et partent au premier appui. Au-delà
+            // d'une poignée de chapitres, on demande confirmation — remettre 300 chapitres
+            // en « non lu » par erreur ne se rattrape pas.
+            var pendingBulk by remember { mutableStateOf<BulkAction?>(null) }
+
+            fun requestBulk(action: BulkAction) {
+                if (state.selectedChapterIds.size > BULK_CONFIRM_THRESHOLD) pendingBulk = action
+                else action.execute(viewModel, state)
+            }
+
             SelectionBar(
                 count = state.selectedChapterIds.size,
+                total = state.chapters.size,
                 allFavorited = state.selectedChapterIds.all { it in state.favoriteChapterIds },
                 onClose = viewModel::clearSelection,
                 onSelectAll = viewModel::selectAll,
-                onMarkRead = {
-                    viewModel.markChapters(state.selectedChapterIds.toList(), read = true)
-                    viewModel.clearSelection()
-                },
-                onMarkUnread = {
-                    viewModel.markChapters(state.selectedChapterIds.toList(), read = false)
-                    viewModel.clearSelection()
-                },
+                onInvert = viewModel::invertSelection,
+                onMarkRead = { requestBulk(BulkAction.MarkRead) },
+                onMarkUnread = { requestBulk(BulkAction.MarkUnread) },
+                onMarkUpToHere = viewModel::markUpToSelection,
                 onToggleBookmark = { favorite ->
                     viewModel.setChaptersFavorite(state.selectedChapterIds.toList(), favorite)
-                    viewModel.clearSelection()
                 },
             )
+
+            pendingBulk?.let { action ->
+                AlertDialog(
+                    onDismissRequest = { pendingBulk = null },
+                    title = { Text("${state.selectedChapterIds.size} chapitres") },
+                    text = { Text(action.confirmMessage(state.selectedChapterIds.size)) },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            action.execute(viewModel, state)
+                            pendingBulk = null
+                        }) { Text("Confirmer") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { pendingBulk = null }) { Text("Annuler") }
+                    },
+                )
+            }
         } else {
             TopChrome(onBack = onBack)
         }
     }
+}
+
+/** Seuil au-delà duquel une action de masse demande confirmation. */
+private const val BULK_CONFIRM_THRESHOLD = 15
+
+/**
+ * Action de masse assez lourde pour mériter une confirmation. Le couple « ce qu'on fait »
+ * et « comment on l'annonce » vit au même endroit : deux `when` séparés finiraient par
+ * dire deux choses différentes.
+ */
+private enum class BulkAction {
+    MarkRead {
+        override fun execute(vm: NovelDetailViewModel, state: NovelDetailUiState) {
+            vm.markChapters(state.selectedChapterIds.toList(), read = true)
+        }
+
+        override fun confirmMessage(count: Int) = "Marquer ces $count chapitres comme lus ?"
+    },
+    MarkUnread {
+        override fun execute(vm: NovelDetailViewModel, state: NovelDetailUiState) {
+            vm.markChapters(state.selectedChapterIds.toList(), read = false)
+        }
+
+        override fun confirmMessage(count: Int) =
+            "Marquer ces $count chapitres comme non lus ?\nTa progression sur chacun sera perdue."
+    };
+
+    abstract fun execute(vm: NovelDetailViewModel, state: NovelDetailUiState)
+    abstract fun confirmMessage(count: Int): String
 }
 
 @Composable
@@ -248,7 +303,10 @@ private fun DetailContent(
                         if (state.isSelecting) viewModel.toggleSelection(chapter.id)
                         else onOpenReader(novel.id, chapter.id)
                     },
-                    onLongClick = { viewModel.toggleSelection(chapter.id) },
+                    // Appui long : ouvre la sélection, puis étend la plage depuis le
+                    // dernier chapitre coché. C'est le seul moyen tenable d'en prendre
+                    // quarante d'un coup.
+                    onLongClick = { viewModel.selectRangeTo(chapter.id) },
                     onToggleRead = { read -> viewModel.markChapterRead(chapter.id, read) },
                     onToggleBookmark = { viewModel.toggleChapterFavorite(chapter.id) },
                     onMarkUpToHere = { viewModel.markUpToRead(chapter.id) },
@@ -486,7 +544,9 @@ private fun ReadingStatusRow(current: String?, onSelect: (String) -> Unit) {
             text = "STATUT DE LECTURE",
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            // Accent, comme tous les autres intitulés de section de l'app : c'était le
+            // seul en gris, et il ne se lisait pas comme un titre.
+            color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(start = 20.dp, bottom = 8.dp),
         )
         LazyRow(
@@ -495,10 +555,12 @@ private fun ReadingStatusRow(current: String?, onSelect: (String) -> Unit) {
         ) {
             items(items = ReadingStatus.entries.toList(), key = { it.id }) { status ->
                 val selected = status.id == current
+                val shape = RoundedCornerShape(12.dp)
+                val style = selectionStyle(selected)
                 Surface(
-                    color = if (selected) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(12.dp),
+                    color = style.container,
+                    shape = shape,
+                    modifier = Modifier.border(1.dp, style.border, shape),
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -510,16 +572,14 @@ private fun ReadingStatusRow(current: String?, onSelect: (String) -> Unit) {
                             status.icon,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp),
-                            tint = if (selected) MaterialTheme.colorScheme.onPrimary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = style.content,
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
                             text = status.label,
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                            color = if (selected) MaterialTheme.colorScheme.onPrimary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = style.content,
                         )
                     }
                 }
@@ -593,6 +653,7 @@ private fun ExpandableDescription(novel: NovelDetailDto) {
 
 // ── Chapitres ──────────────────────────────────────────────────────────────────
 
+
 @Composable
 private fun ChapterHeaderRow(
     count: Int,
@@ -644,7 +705,7 @@ private fun ChapterHeaderRow(
                 )
                 HorizontalDivider()
                 DropdownMenuItem(
-                    text = { Text("Sélectionner les chapitres") },
+                    text = { Text("Tout sélectionner") },
                     leadingIcon = { Icon(Icons.Filled.SelectAll, contentDescription = null) },
                     onClick = { menuOpen = false; onSelectAll() },
                 )
@@ -655,10 +716,19 @@ private fun ChapterHeaderRow(
 
 /**
  * Ligne de chapitre. Appui simple = lire (ou cocher en mode sélection), appui long =
- * entrer en sélection, menu ⋮ = signet / lu / marquer les précédents comme lus.
+ * entrer en sélection puis étendre la plage, menu ⋮ = signet / lu / marquer les
+ * précédents comme lus.
  *
- * L'appui long utilise `detectTapGestures` et non `combinedClickable`, encore
+ * <p>L'appui long utilise `detectTapGestures` et non `combinedClickable`, encore
  * expérimental — même précaution que pour les autres composants du projet.
+ *
+ * <p><b>Le mode sélection ne change qu'une seule chose dans la liste : le fond des lignes
+ * cochées.</b> La pastille « non lu » et le menu ⋮ restent en place. Une version
+ * précédente remplaçait la pastille par une coche et escamotait le ⋮ : on perdait d'un
+ * coup l'état de lecture de toutes les lignes — celui-là même qui sert à choisir quoi
+ * cocher — et la coche faisait doublon avec le fond teinté.
+ *
+ * <p>Le **signet** est une icône posée devant le titre du chapitre.
  */
 @Composable
 private fun ChapterRow(
@@ -691,17 +761,8 @@ private fun ChapterRow(
             .padding(start = 20.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Repère de gauche : coche en mode sélection, sinon pastille « non lu ».
-        if (selectionMode) {
-            Icon(
-                imageVector = if (selected) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
-                contentDescription = null,
-                tint = if (selected) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                modifier = Modifier.size(20.dp),
-            )
-            Spacer(Modifier.width(12.dp))
-        } else if (!read) {
+        // Repère de gauche : pastille « non lu », en place quoi qu'il arrive.
+        if (!read) {
             Box(
                 modifier = Modifier
                     .size(8.dp)
@@ -767,43 +828,44 @@ private fun ChapterRow(
             }
         }
 
-        if (!selectionMode) {
-            Box {
-                IconButton(onClick = { menuOpen = true }) {
-                    Icon(
-                        Icons.Filled.MoreVert,
-                        contentDescription = "Actions du chapitre",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    )
-                }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(
-                        text = { Text(if (read) "Marquer comme non lu" else "Marquer comme lu") },
-                        leadingIcon = {
-                            Icon(
-                                if (read) Icons.Outlined.CheckCircle else Icons.Filled.CheckCircle,
-                                contentDescription = null,
-                            )
-                        },
-                        onClick = { menuOpen = false; onToggleRead(!read) },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(if (favorited) "Retirer le signet" else "Ajouter un signet") },
-                        leadingIcon = {
-                            Icon(
-                                if (favorited) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
-                                contentDescription = null,
-                            )
-                        },
-                        onClick = { menuOpen = false; onToggleBookmark() },
-                    )
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text("Marquer les précédents comme lus") },
-                        leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
-                        onClick = { menuOpen = false; onMarkUpToHere() },
-                    )
-                }
+        // Toujours présent, sélection comprise : le bouton est un enfant de la ligne, et
+        // Compose sert les pointeurs aux enfants d'abord — l'appui sur le ⋮ est donc
+        // consommé ici et ne coche pas la ligne au passage.
+        Box {
+            IconButton(onClick = { menuOpen = true }) {
+                Icon(
+                    Icons.Filled.MoreVert,
+                    contentDescription = "Actions du chapitre",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                )
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text(if (read) "Marquer comme non lu" else "Marquer comme lu") },
+                    leadingIcon = {
+                        Icon(
+                            if (read) Icons.Outlined.CheckCircle else Icons.Filled.CheckCircle,
+                            contentDescription = null,
+                        )
+                    },
+                    onClick = { menuOpen = false; onToggleRead(!read) },
+                )
+                DropdownMenuItem(
+                    text = { Text(if (favorited) "Retirer le signet" else "Ajouter un signet") },
+                    leadingIcon = {
+                        Icon(
+                            if (favorited) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                            contentDescription = null,
+                        )
+                    },
+                    onClick = { menuOpen = false; onToggleBookmark() },
+                )
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text("Marquer les précédents comme lus") },
+                    leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
+                    onClick = { menuOpen = false; onMarkUpToHere() },
+                )
             }
         }
     }
@@ -995,13 +1057,18 @@ private fun TopChrome(onBack: () -> Unit) {
 @Composable
 private fun SelectionBar(
     count: Int,
+    total: Int,
     allFavorited: Boolean,
     onClose: () -> Unit,
     onSelectAll: () -> Unit,
+    onInvert: () -> Unit,
     onMarkRead: () -> Unit,
     onMarkUnread: () -> Unit,
+    onMarkUpToHere: () -> Unit,
     onToggleBookmark: (Boolean) -> Unit,
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
+
     Surface(
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 4.dp,
@@ -1011,19 +1078,34 @@ private fun SelectionBar(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .statusBarsPadding()
-                .height(56.dp)
+                .heightIn(min = 56.dp)
                 .fillMaxWidth()
-                .padding(horizontal = 4.dp),
+                .padding(horizontal = 4.dp, vertical = 4.dp),
         ) {
             IconButton(onClick = onClose) {
                 Icon(Icons.Filled.Close, contentDescription = "Quitter la sélection")
             }
-            Text(
-                text = "$count sélectionné${if (count > 1) "s" else ""}",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    // Le total situe la sélection : « 12 » seul ne dit pas si c'est une
+                    // poignée dans une longue série ou la quasi-totalité du roman.
+                    text = "$count / $total",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                // Le geste de plage ne s'annonce nulle part ailleurs, et c'est le seul
+                // moyen de cocher quarante chapitres. On le souffle au moment exact où il
+                // devient utile : une case cochée, la suivante à choisir.
+                if (count == 1) {
+                    Text(
+                        text = "Appui long ailleurs pour tout prendre jusque-là",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
             IconButton(onClick = onMarkRead) {
                 Icon(
                     Icons.Filled.CheckCircle,
@@ -1042,8 +1124,30 @@ private fun SelectionBar(
                     else MaterialTheme.colorScheme.onSurface,
                 )
             }
-            IconButton(onClick = onSelectAll) {
-                Icon(Icons.Filled.SelectAll, contentDescription = "Tout sélectionner")
+            // Le reste part dans un menu : six icônes de front ne laisseraient plus la
+            // place au compteur sur un écran étroit.
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "Autres actions")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Marquer les précédents comme lus") },
+                        leadingIcon = { Icon(Icons.Filled.DoneAll, contentDescription = null) },
+                        onClick = { menuOpen = false; onMarkUpToHere() },
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Tout sélectionner") },
+                        leadingIcon = { Icon(Icons.Filled.SelectAll, contentDescription = null) },
+                        onClick = { menuOpen = false; onSelectAll() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Inverser la sélection") },
+                        leadingIcon = { Icon(Icons.Filled.Deselect, contentDescription = null) },
+                        onClick = { menuOpen = false; onInvert() },
+                    )
+                }
             }
         }
     }

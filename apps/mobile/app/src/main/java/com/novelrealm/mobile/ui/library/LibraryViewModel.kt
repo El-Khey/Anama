@@ -23,11 +23,7 @@ data class LibraryUiState(
     // novelId → part de chapitres lus (0f..1f), pour la barre de progression des cartes
     val readFractionByNovel: Map<Long, Float> = emptyMap(),
     val categories: List<CategoryDto> = emptyList(),
-) {
-    /** Statut de lecture d'un roman suivi, ou null s'il n'est pas dans la bibliothèque. */
-    fun statusOf(novelId: Long): String? =
-        entries.firstOrNull { it.novel.id == novelId }?.status
-}
+)
 
 // Bibliothèque (#35) : romans suivis (avec badge non-lus) + étagères personnelles,
 // présentés en onglets façon Mihon (catégories = onglets).
@@ -36,6 +32,7 @@ class LibraryViewModel : ViewModel() {
     private val libraryRepo = ServiceLocator.libraryRepository
     private val progressRepo = ServiceLocator.progressRepository
     private val categoryRepo = ServiceLocator.categoryRepository
+    private val chapterRepo = ServiceLocator.chapterRepository
 
     private val _state = MutableStateFlow(LibraryUiState())
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
@@ -74,34 +71,87 @@ class LibraryViewModel : ViewModel() {
         }
     }
 
-    // ── Statut de lecture (accessible directement depuis la grille, appui long) ──
+    // Le statut de lecture ne se change PAS depuis la bibliothèque : il se règle sur la
+    // fiche du roman (`NovelDetailViewModel.setLibraryStatus`). C'est un choix qu'on pose
+    // délibérément, pas au passage sur une couverture. Ici, il ne sert qu'à filtrer.
 
-    /** Déplace un roman vers un autre statut (À lire / En cours / En pause / Terminé). */
-    fun setStatus(novelId: Long, status: String) {
-        // Optimiste : la grille se réorganise tout de suite, le serveur suit.
-        _state.update { state ->
-            state.copy(
-                entries = state.entries.map {
-                    if (it.novel.id == novelId) it.copy(status = status) else it
-                },
-            )
-        }
-        viewModelScope.launch {
-            if (libraryRepo.updateStatus(novelId, status) is ApiResult.Error) refresh()
-        }
-    }
-
-    /** Retire un roman de la bibliothèque (il reste consultable depuis Explorer). */
+    /**
+     * Retire un roman de la bibliothèque (il reste consultable depuis Explorer).
+     *
+     * <p>Le retrait vide AUSSI les étagères : le serveur en fait autant depuis le
+     * correctif de `LibraryEntryService.remove`. Sans ce nettoyage local, le roman
+     * disparaissait de « Tous » mais restait affiché dans son étagère jusqu'au prochain
+     * rechargement — et l'écart entre les deux onglets était visible à l'œil nu.
+     */
     fun removeFromLibrary(novelId: Long) {
         _state.update { state ->
-            state.copy(entries = state.entries.filterNot { it.novel.id == novelId })
+            state.copy(
+                entries = state.entries.filterNot { it.novel.id == novelId },
+                categories = state.categories.map { shelf ->
+                    shelf.copy(novels = shelf.novels.filterNot { it.id == novelId })
+                },
+            )
         }
         viewModelScope.launch {
             if (libraryRepo.remove(novelId) is ApiResult.Error) refresh()
         }
     }
 
+    /**
+     * Marque tout un roman comme lu depuis la bibliothèque, sans passer par sa fiche.
+     *
+     * <p>La bibliothèque ne connaît pas les chapitres — elle n'affiche que des couvertures.
+     * On va donc les chercher juste avant le marquage : un aller-retour de plus, mais
+     * uniquement quand l'action est réellement demandée, alors que les charger d'avance
+     * pour chaque roman suivi coûterait une requête par couverture à chaque ouverture.
+     */
+    fun markAllRead(novelId: Long) {
+        viewModelScope.launch {
+            val chapters = (chapterRepo.getChapters(novelId) as? ApiResult.Success)?.data.orEmpty()
+            if (chapters.isEmpty()) return@launch
+            progressRepo.markBatch(chapters.map { it.id }, read = true)
+            // Recharge : c'est le résumé de progression qui alimente la pastille de
+            // non-lus et la barre des cartes, et il vient d'une autre route.
+            refresh()
+        }
+    }
+
     // ── Étagères ──
+
+    /**
+     * Range ou retire le roman d'une étagère, depuis la feuille d'actions rapides.
+     *
+     * <p>Appliqué immédiatement, contrairement au dialogue de la fiche qui attend
+     * « Valider » : ici on coche une seule étagère à la fois, il n'y a pas de brouillon
+     * à confirmer.
+     */
+    fun toggleShelf(novelId: Long, categoryId: Long) {
+        val shelf = _state.value.categories.firstOrNull { it.id == categoryId } ?: return
+        val novel = _state.value.entries.firstOrNull { it.novel.id == novelId }?.novel ?: return
+        val wasIn = shelf.novels.any { it.id == novelId }
+
+        _state.update { state ->
+            state.copy(
+                categories = state.categories.map { c ->
+                    when {
+                        c.id != categoryId -> c
+                        wasIn -> c.copy(novels = c.novels.filterNot { it.id == novelId })
+                        else -> c.copy(novels = c.novels + novel)
+                    }
+                },
+            )
+        }
+        viewModelScope.launch {
+            // Les deux routes ne renvoient pas le même type : on teste chaque appel sur
+            // place plutôt que de chercher un supertype commun aux deux résultats.
+            val failed = if (wasIn) {
+                categoryRepo.removeNovel(categoryId, novelId) is ApiResult.Error
+            } else {
+                categoryRepo.addNovel(categoryId, novelId) is ApiResult.Error
+            }
+            if (failed) refresh()
+        }
+    }
 
     fun createShelf(name: String) {
         val trimmed = name.trim()
@@ -109,6 +159,30 @@ class LibraryViewModel : ViewModel() {
         viewModelScope.launch {
             when (val result = categoryRepo.create(trimmed)) {
                 is ApiResult.Success -> _state.update { it.copy(categories = it.categories + result.data) }
+                is ApiResult.Error -> Unit
+            }
+        }
+    }
+
+    /**
+     * Crée une étagère **et y range aussitôt le roman**, depuis la feuille d'actions.
+     *
+     * <p>Distincte de [createShelf], qui sert au bouton d'en-tête : là on crée une
+     * étagère pour elle-même. Ici on la crée POUR y mettre ce roman — la laisser vide
+     * obligerait à rouvrir la feuille pour cocher la case qu'on vient de créer.
+     */
+    fun createShelfAndAdd(novelId: Long, name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch {
+            when (val created = categoryRepo.create(trimmed)) {
+                is ApiResult.Success -> when (val filled = categoryRepo.addNovel(created.data.id, novelId)) {
+                    // La réponse de `addNovel` contient déjà l'étagère avec son roman :
+                    // on l'ajoute telle quelle, sans rechargement.
+                    is ApiResult.Success -> _state.update { it.copy(categories = it.categories + filled.data) }
+                    // L'étagère existe, mais vide : mieux vaut l'afficher que la perdre.
+                    is ApiResult.Error -> _state.update { it.copy(categories = it.categories + created.data) }
+                }
                 is ApiResult.Error -> Unit
             }
         }

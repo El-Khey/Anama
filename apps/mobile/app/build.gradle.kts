@@ -27,9 +27,24 @@ val apiBaseUrl: String = run {
         ?: (project.findProperty("novelrealm.baseUrl") as String?)
         ?: "http://10.0.2.2:8080/"
 
+    val trimmed = raw.trim()
+
+    // Un schéma manquant ne se voit PAS à la compilation : l'app se construit, s'installe,
+    // puis meurt au lancement sur un « Expected URL scheme 'http' or 'https' » — trace
+    // obfusquée en release, donc illisible. Autant refuser ici, où le message peut dire
+    // quoi corriger et où.
+    require(trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        """
+        novelrealm.baseUrl doit commencer par http:// ou https:// — reçu : « $trimmed »
+        À corriger dans local.properties (jamais versionné), par exemple :
+          novelrealm.baseUrl=http://localhost:8080/   téléphone USB (+ adb reverse tcp:8080 tcp:8080)
+          novelrealm.baseUrl=http://10.0.2.2:8080/    émulateur
+        """.trimIndent()
+    }
+
     // Retrofit EXIGE une URL de base terminée par « / » (sinon il lève une exception
     // au démarrage) : on la remet si elle manque, plutôt que de planter à l'exécution.
-    raw.trim().let { if (it.endsWith("/")) it else "$it/" }
+    if (trimmed.endsWith("/")) trimmed else "$trimmed/"
 }
 
 android {

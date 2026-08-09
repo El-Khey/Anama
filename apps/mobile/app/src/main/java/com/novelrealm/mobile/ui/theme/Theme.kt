@@ -54,6 +54,13 @@ private fun darkSchemeFor(accent: AccentId) = with(accent.palette) {
         surfaceVariant = NovelSurfaceVariantDark,
         onSurfaceVariant = Color(0xFFA1A1AA),
         outlineVariant = Color(0xFF3F3F46),
+        // Material 3 « élève » une surface en y mélangeant `surfaceTint`, qui vaut la
+        // couleur PRIMAIRE par défaut. Toute feuille, carte ou menu portant une
+        // `tonalElevation` se teintait donc à l'accent : avec l'ambre, les panneaux
+        // viraient au jaune sale au lieu de rester neutres — et d'autant plus qu'ils
+        // étaient élevés. Un voile blanc éclaircit sans colorer : le relief reste,
+        // la teinte part. C'est le comportement qu'on attend d'une surface surélevée.
+        surfaceTint = Color.White,
     )
 }
 
@@ -75,5 +82,10 @@ private fun lightSchemeFor(accent: AccentId) = with(accent.palette) {
         surfaceVariant = NovelSurfaceVariantLight,
         onSurfaceVariant = Color(0xFF71717A),
         outlineVariant = Color(0xFFE4E4E7),
+        // Même correctif qu'en sombre, réglé autrement : la surface claire est déjà
+        // blanche, l'éclaircir n'apporte rien et la teinter d'accent la salit. On
+        // neutralise en prenant la surface elle-même — le relief vient alors de
+        // l'ombre portée, seule chose qui se voie sur du blanc.
+        surfaceTint = NovelSurfaceLight,
     )
 }

@@ -32,7 +32,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,6 +44,7 @@ import com.novelrealm.mobile.data.local.ReaderFont
 import com.novelrealm.mobile.data.local.ReaderPrefs
 import com.novelrealm.mobile.data.local.ReaderTheme
 import com.novelrealm.mobile.ui.components.SegmentedChoice
+import com.novelrealm.mobile.ui.components.selectionStyle
 import kotlin.math.roundToInt
 
 /**
@@ -341,13 +341,13 @@ private fun ToggleChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val content = if (active) MaterialTheme.colorScheme.onPrimary
-    else MaterialTheme.colorScheme.onSurfaceVariant
+    val shape = RoundedCornerShape(13.dp)
+    val style = selectionStyle(active)
+    val content = style.content
     Surface(
-        color = if (active) MaterialTheme.colorScheme.primary
-        else MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(13.dp),
-        modifier = modifier,
+        color = style.container,
+        shape = shape,
+        modifier = modifier.border(1.dp, style.border, shape),
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,

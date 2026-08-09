@@ -255,6 +255,19 @@ fun PassageThreadSheet(
             if (showComments) {
                 Column(
                     modifier = Modifier
+                        // `weight(fill = false)` : le fil prend ce qui RESTE, pas ce qu'il
+                        // veut. Une Column mesure d'abord les enfants sans poids, dans
+                        // l'ordre, chacun avec l'espace encore libre — le fil passait donc
+                        // avant le composeur et lui laissait les miettes. Dès que le
+                        // clavier montait (safeDrawing ajoute sa hauteur en marge basse),
+                        // il ne restait plus rien : le champ s'aplatissait sous son
+                        // `heightIn(min = 46.dp)`, et le bouton d'envoi devenait un ovale,
+                        // `CircleShape` appliqué à une boîte écrasée n'étant plus un rond.
+                        //
+                        // Avec un poids, le fil est mesuré en DERNIER : le composeur garde
+                        // sa taille, et la discussion se contente du reste — au pire elle
+                        // défile, ce qu'elle sait déjà faire.
+                        .weight(1f, fill = false)
                         .heightIn(max = 260.dp)
                         .verticalScroll(rememberScrollState())
                         .padding(horizontal = 16.dp, vertical = 8.dp),
