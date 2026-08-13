@@ -83,7 +83,6 @@ import com.novelrealm.mobile.ui.components.NovelCover
 import com.novelrealm.mobile.ui.components.NovelGridItem
 import com.novelrealm.mobile.ui.components.SheetScrim
 import com.novelrealm.mobile.ui.components.selectionStyle
-import com.novelrealm.mobile.ui.notifications.NotificationBellViewModel
 import com.novelrealm.mobile.ui.util.ReadingStatus
 import kotlinx.coroutines.launch
 
@@ -106,18 +105,20 @@ import kotlinx.coroutines.launch
 fun LibraryScreen(
     onNovelClick: (Long) -> Unit,
     onOpenNotifications: () -> Unit,
+    /**
+     * Le nombre de notifications non lues, tenu par la coquille (MainScreen) —
+     * la même valeur pastille la cloche ici et l'onglet Profil en bas.
+     */
+    unreadNotifications: Long,
     modifier: Modifier = Modifier,
     viewModel: LibraryViewModel = viewModel(),
-    bellViewModel: NotificationBellViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsState()
-    val unreadNotifications by bellViewModel.unreadCount.collectAsState()
 
-    // Rafraîchit à chaque retour sur l'onglet (la bibliothèque évolue depuis le détail,
-    // et la cloche depuis n'importe où).
+    // Rafraîchit à chaque retour sur l'onglet : la bibliothèque évolue depuis le
+    // détail d'un roman.
     LaunchedEffect(Unit) {
         viewModel.refresh()
-        bellViewModel.refresh()
     }
 
     var showCreateDialog by remember { mutableStateOf(false) }

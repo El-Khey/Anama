@@ -43,6 +43,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -237,8 +239,25 @@ fun GifPickerSheet(
     }
 }
 
+/**
+ * Le champ de recherche, qui **prend le clavier dès l'ouverture** du sélecteur.
+ *
+ * Sans ça, la saisie restait branchée sur le champ de commentaire ouvert
+ * dessous : on tapait « chat », le clavier était déjà là, et les lettres
+ * partaient dans le message. Le sélecteur n'a qu'une raison d'exister —
+ * chercher — autant y poser le curseur d'emblée.
+ */
 @Composable
 private fun SearchField(query: String, onQueryChange: (String) -> Unit) {
+    val focusRequester = remember { FocusRequester() }
+    // En effet et non en appel direct : le champ doit être attaché à l'arbre
+    // avant qu'on puisse le viser. Le `runCatching` couvre le cas limite d'une
+    // feuille refermée dans le même souffle qu'elle s'ouvre — une exception y
+    // ferait tomber l'app pour un clavier.
+    LaunchedEffect(Unit) {
+        runCatching { focusRequester.requestFocus() }
+    }
+
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
         shape = RoundedCornerShape(23.dp),
@@ -271,7 +290,9 @@ private fun SearchField(query: String, onQueryChange: (String) -> Unit) {
                     ),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester),
                 )
             }
             if (query.isNotEmpty()) {

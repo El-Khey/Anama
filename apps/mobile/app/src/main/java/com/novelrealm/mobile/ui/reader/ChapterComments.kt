@@ -7,10 +7,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
@@ -30,7 +28,6 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.outlined.Comment
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.GifBox
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -39,7 +36,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -58,25 +54,15 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.novelrealm.mobile.data.remote.dto.ChapterCommentDto
 import com.novelrealm.mobile.data.remote.dto.UserSearchDto
-import com.novelrealm.mobile.data.remote.resolveImageUrl
-import com.novelrealm.mobile.ui.components.CommentGif
+import com.novelrealm.mobile.ui.comments.CommentThread
+import com.novelrealm.mobile.ui.comments.toThreadComment
 import com.novelrealm.mobile.ui.components.MentionSuggestionRow
-import com.novelrealm.mobile.ui.components.MentionText
-import com.novelrealm.mobile.ui.util.relativeTimeLabel
 
 /**
  * Longueur maximale d'un message. Doit rester alignée sur `ChapterComment.MAX_BODY_LENGTH`
  * côté back : c'est lui qui refuse, l'app ne fait qu'éviter d'aller au refus.
  */
 private const val MaxCommentLength = 2_000
-
-/**
- * Réponses affichées d'emblée dans un fil. Au-delà, elles se replient derrière
- * « Voir les N autres réponses » (issue #45, §6) : un fil de quinze réponses ne
- * doit pas engloutir la page du chapitre. On ne replie jamais pour UNE seule
- * réponse cachée — un bouton coûterait plus qu'il ne cache.
- */
-private const val VisibleReplies = 2
 
 /**
  * Discussion du chapitre, posée **dans le fil du chapitre** — on continue de défiler
@@ -150,12 +136,31 @@ fun ChapterCommentsSection(
             else -> {
                 state.threads.forEach { thread ->
                     Spacer(Modifier.height(12.dp))
-                    ThreadCard(
-                        thread = thread,
+                    // Le fil est rendu par le composant PARTAGE avec les passages :
+                    // une seule mise en forme pour les deux surfaces (issue #45, §6).
+                    // La correspondance id -> DTO permet de rendre au ViewModel
+                    // l'objet qu'il attend, sans le faire transiter par l'affichage.
+                    val byId = remember(thread) {
+                        (listOf(thread) + thread.replies).associateBy { it.id }
+                    }
+                    CommentThread(
+                        root = remember(thread) { thread.toThreadComment() },
                         foreground = foreground,
-                        onReply = onReply,
-                        onEdit = onEdit,
-                        onDelete = onDelete,
+                        onReply = { target, root ->
+                            // Repondre a une reponse : meme fil cote serveur, mais
+                            // c'est l'auteur VISE qu'il faut mentionner et notifier.
+                            onReply(root.id, target.userId, target.pseudo, target.id != root.id)
+                        },
+                        onEdit = { comment, root ->
+                            byId[comment.id]?.let {
+                                onEdit(it, if (comment.id == root.id) null else root.id)
+                            }
+                        },
+                        onDelete = { comment, root ->
+                            byId[comment.id]?.let {
+                                onDelete(it, if (comment.id == root.id) null else root.id)
+                            }
+                        },
                         onOpenUser = onOpenUser,
                     )
                 }
@@ -265,209 +270,7 @@ private fun WriteButton(foreground: Color, onClick: () -> Unit) {
     }
 }
 
-// ── Un fil ────────────────────────────────────────────────────────────────────
 
-@Composable
-private fun ThreadCard(
-    thread: ChapterCommentDto,
-    foreground: Color,
-    onReply: (Long, Long?, String?, Boolean) -> Unit,
-    onEdit: (ChapterCommentDto, Long?) -> Unit,
-    onDelete: (ChapterCommentDto, Long?) -> Unit,
-    onOpenUser: (Long) -> Unit,
-) {
-    // Repli des longues listes de réponses (issue #45, §6). L'état est propre au
-    // fil : déplier l'un ne déplie pas les autres.
-    var expanded by remember(thread.id) { mutableStateOf(false) }
-    val replies = thread.replies
-    val collapsible = replies.size > VisibleReplies + 1 && !expanded
-    val visibleReplies = if (collapsible) replies.take(VisibleReplies) else replies
-
-    Surface(
-        // Teinte dérivée de la couleur du texte : la carte s'éclaircit sur fond sombre
-        // et s'assombrit sur fond clair, sans qu'on ait à décliner une palette par thème.
-        color = foreground.copy(alpha = 0.05f),
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            CommentBlock(
-                comment = thread,
-                foreground = foreground,
-                onReply = { onReply(thread.id, thread.userId, thread.pseudo, false) },
-                onEdit = { onEdit(thread, null) },
-                onDelete = { onDelete(thread, null) },
-                onOpenUser = onOpenUser,
-            )
-
-            visibleReplies.forEach { reply ->
-                // `IntrinsicSize.Min` donne au filet la hauteur exacte de la réponse ;
-                // un `fillMaxHeight` seul n'aurait rien à quoi se mesurer ici.
-                Row(modifier = Modifier.padding(top = 14.dp).height(IntrinsicSize.Min)) {
-                    ReplyRail(foreground)
-                    CommentBlock(
-                        comment = reply,
-                        foreground = foreground,
-                        // Répondre à une réponse reste dans ce fil : l'auteur visé est
-                        // mentionné, donc notifié (issue #45, §2 et §3).
-                        onReply = { onReply(thread.id, reply.userId, reply.pseudo, true) },
-                        onEdit = { onEdit(reply, thread.id) },
-                        onDelete = { onDelete(reply, thread.id) },
-                        onOpenUser = onOpenUser,
-                    )
-                }
-            }
-
-            if (collapsible) {
-                Row(modifier = Modifier.padding(top = 10.dp).height(IntrinsicSize.Min)) {
-                    ReplyRail(foreground)
-                    TextAction(
-                        label = "Voir les ${replies.size - VisibleReplies} autres réponses",
-                        onClick = { expanded = true },
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** Le filet vertical qui rattache les réponses à leur fil — un seul niveau, toujours. */
-@Composable
-private fun ReplyRail(foreground: Color) {
-    Box(
-        modifier = Modifier
-            .padding(start = 6.dp, end = 12.dp)
-            .width(2.dp)
-            .fillMaxHeight()
-            .clip(RoundedCornerShape(50))
-            .background(foreground.copy(alpha = 0.15f)),
-    )
-}
-
-@Composable
-private fun CommentBlock(
-    comment: ChapterCommentDto,
-    foreground: Color,
-    onReply: () -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
-    onOpenUser: (Long) -> Unit,
-) {
-    // `remember` avant toute branche : un message peut devenir une pierre tombale sous
-    // nos yeux, et un `return` anticipé ferait varier le nombre de blocs mémorisés.
-    var confirmDelete by remember { mutableStateOf(false) }
-
-    if (comment.deleted) {
-        Text(
-            text = "Message supprimé",
-            style = MaterialTheme.typography.bodySmall,
-            color = foreground.copy(alpha = 0.4f),
-        )
-        return
-    }
-
-    val userId = comment.userId
-    Row(modifier = Modifier.fillMaxWidth()) {
-        Avatar(
-            url = comment.avatarUrl,
-            pseudo = comment.pseudo,
-            foreground = foreground,
-            onClick = userId?.let { { onOpenUser(it) } },
-        )
-        Spacer(Modifier.width(10.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = comment.pseudo.orEmpty(),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = foreground.copy(alpha = 0.95f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .weight(1f, fill = false)
-                        .then(
-                            if (userId != null) {
-                                Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .clickable { onOpenUser(userId) }
-                            } else {
-                                Modifier
-                            },
-                        ),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = relativeTimeLabel(comment.createdAt) +
-                        if (comment.edited) " · modifié" else "",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = foreground.copy(alpha = 0.4f),
-                    maxLines = 1,
-                )
-            }
-            val body = comment.body.orEmpty()
-            if (body.isNotBlank()) {
-                Spacer(Modifier.height(5.dp))
-                MentionText(
-                    body = body,
-                    mentions = comment.mentions,
-                    color = foreground.copy(alpha = 0.85f),
-                    style = MaterialTheme.typography.bodyMedium,
-                    onMentionClick = onOpenUser,
-                )
-            }
-            comment.gifUrl?.let { gif ->
-                Spacer(Modifier.height(7.dp))
-                CommentGif(
-                    gifUrl = gif,
-                    previewUrl = comment.gifPreviewUrl,
-                    width = 0,
-                    height = 0,
-                )
-            }
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                TextAction(label = "Répondre", onClick = onReply)
-                if (comment.mine) {
-                    TextAction(label = "Modifier", onClick = onEdit)
-                    TextAction(
-                        label = "Supprimer",
-                        onClick = { confirmDelete = true },
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-        }
-    }
-
-    if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Supprimer ce message ?") },
-            text = { Text("Il ne sera plus visible par les autres lecteurs. C'est définitif.") },
-            confirmButton = {
-                Text(
-                    text = "Supprimer",
-                    color = MaterialTheme.colorScheme.error,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { confirmDelete = false; onDelete() }
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                )
-            },
-            dismissButton = {
-                Text(
-                    text = "Annuler",
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { confirmDelete = false }
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                )
-            },
-        )
-    }
-}
 
 @Composable
 private fun TextAction(
@@ -487,44 +290,6 @@ private fun TextAction(
     )
 }
 
-@Composable
-private fun Avatar(
-    url: String?,
-    pseudo: String?,
-    foreground: Color,
-    onClick: (() -> Unit)? = null,
-) {
-    val clickModifier = if (onClick != null) {
-        Modifier.clip(CircleShape).clickable(onClick = onClick)
-    } else {
-        Modifier
-    }
-    val resolved = resolveImageUrl(url)
-    if (resolved != null) {
-        AsyncImage(
-            model = resolved,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.size(32.dp).clip(CircleShape).then(clickModifier),
-        )
-    } else {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(foreground.copy(alpha = 0.12f))
-                .then(clickModifier),
-        ) {
-            Text(
-                text = pseudo.orEmpty().take(1).uppercase().ifBlank { "?" },
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = foreground.copy(alpha = 0.7f),
-            )
-        }
-    }
-}
 
 // ── Rédaction ─────────────────────────────────────────────────────────────────
 

@@ -76,8 +76,6 @@ fun InboxScreen(
      */
     onOpenChapter: (novelId: Long, chapterId: Long, blockIndex: Int, openComments: Boolean) -> Unit,
     modifier: Modifier = Modifier,
-    /** Onglet ouvert en arrivant — la cloche vise les reçues, le profil mes commentaires. */
-    initialTab: InboxTab = InboxTab.Alerts,
     notificationsViewModel: NotificationsViewModel = viewModel(),
 ) {
     // Les alertes sont chargées d'emblée (leur compteur alimente la pastille de
@@ -86,7 +84,7 @@ fun InboxScreen(
     val notificationsState by notificationsViewModel.state.collectAsState()
     // L'onglet est mémorisé par son RANG, pas par sa valeur : un Int se range dans
     // le Bundle de sauvegarde d'état sans supposer quoi que ce soit du type.
-    var tabIndex by rememberSaveable { mutableIntStateOf(initialTab.ordinal) }
+    var tabIndex by rememberSaveable { mutableIntStateOf(InboxTab.Alerts.ordinal) }
     val tab = InboxTab.entries[tabIndex]
 
     // Remontés ici pour survivre au changement d'onglet : revenir sur une liste
@@ -111,7 +109,7 @@ fun InboxScreen(
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
             }
             Text(
-                text = "Notifications",
+                text = "Activité",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
             )

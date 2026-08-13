@@ -8,9 +8,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.novelrealm.mobile.ui.detail.NovelDetailScreen
-import com.novelrealm.mobile.ui.main.MainScreen
 import com.novelrealm.mobile.ui.inbox.InboxScreen
-import com.novelrealm.mobile.ui.inbox.InboxTab
+import com.novelrealm.mobile.ui.main.MainScreen
 import com.novelrealm.mobile.ui.profile.AccountScreen
 import com.novelrealm.mobile.ui.profile.AppearanceScreen
 import com.novelrealm.mobile.ui.profile.EditProfileScreen
@@ -28,7 +27,7 @@ import com.novelrealm.mobile.ui.social.PublicProfileScreen
 fun AppNavHost(onLogout: () -> Unit, modifier: Modifier = Modifier) {
     val navController = rememberNavController()
 
-    // Le lien profond des notifications et de « Mes commentaires » (issue #45) : un
+    // Le lien profond de l'écran « Activité » (issue #45) : un
     // passage précis (`block` ≥ 0) ou la discussion de fin de chapitre (`comments`).
     // Une seule fabrique d'URL — deux écrans l'utilisent, ils doivent rester d'accord.
     val openChapterAt = { novelId: Long, chapterId: Long, block: Int, comments: Boolean ->
@@ -44,7 +43,7 @@ fun AppNavHost(onLogout: () -> Unit, modifier: Modifier = Modifier) {
                     navController.navigate("reader/$novelId/$chapterId")
                 },
                 onOpenSettings = { route -> navController.navigate(route) },
-                onOpenNotifications = { navController.navigate("notifications") },
+                onOpenNotifications = { navController.navigate(SettingsRoutes.ACTIVITY) },
             )
         }
 
@@ -76,21 +75,14 @@ fun AppNavHost(onLogout: () -> Unit, modifier: Modifier = Modifier) {
                 },
             )
         }
-        // ── La boîte de réception (issue #45, §3 et §4) ──
-        // Un seul écran, deux portes : la cloche l'ouvre sur les alertes, le profil
-        // sur mes messages. Les onglets font le reste, sans nouvelle navigation.
-        composable("notifications") {
+        // ── « Activité » (issue #45, §3 et §4) ──
+        // Un seul écran pour les deux : ce qu'on m'écrit, et ce que j'ai écrit. La
+        // cloche de la bibliothèque et la ligne « Activité » du profil mènent
+        // ici — d'où une seule route (SettingsRoutes.ACTIVITY vaut la même chaîne).
+        composable(SettingsRoutes.ACTIVITY) {
             InboxScreen(
                 onBack = { navController.popBackStack() },
                 onOpenChapter = openChapterAt,
-                initialTab = InboxTab.Alerts,
-            )
-        }
-        composable(SettingsRoutes.MY_COMMENTS) {
-            InboxScreen(
-                onBack = { navController.popBackStack() },
-                onOpenChapter = openChapterAt,
-                initialTab = InboxTab.Mine,
             )
         }
 

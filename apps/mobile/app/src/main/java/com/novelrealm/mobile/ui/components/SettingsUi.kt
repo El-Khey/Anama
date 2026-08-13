@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -149,6 +151,8 @@ fun SettingsRow(
     destructive: Boolean = false,
     showChevron: Boolean = true,
     enabled: Boolean = true,
+    /** Compteur à droite (0 = rien) : « il y a du nouveau derrière cette ligne ». */
+    badge: Long = 0,
     onClick: (() -> Unit)? = null,
 ) {
     val accent = when {
@@ -185,6 +189,27 @@ fun SettingsRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        // Le compteur se pose AVANT le chevron : il annonce ce qu'il y a derrière
+        // la porte, le chevron dit seulement qu'elle s'ouvre.
+        if (badge > 0) {
+            Spacer(Modifier.width(8.dp))
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .defaultMinSize(minWidth = 20.dp, minHeight = 20.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.error)
+                    .padding(horizontal = 6.dp),
+            ) {
+                Text(
+                    text = if (badge > 99) "99+" else "$badge",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onError,
+                    maxLines = 1,
                 )
             }
         }

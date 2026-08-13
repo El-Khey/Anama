@@ -13,6 +13,8 @@ object SettingsRoutes {
     // la collection de citations (#41, §3).
     const val MY_QUOTES = "me/quotes"
 
-    // Tous ses commentaires, au même endroit (issue #45, §4).
-    const val MY_COMMENTS = "me/comments"
+    // « Activité » (issue #45, §3 et §4) : volontairement LA MÊME route que la
+    // cloche de la bibliothèque. Une page unique, deux portes — un second chemin
+    // vers un second écran finirait par diverger de celui-ci.
+    const val ACTIVITY = "notifications"
 }

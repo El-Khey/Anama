@@ -35,10 +35,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FormatQuote
-import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.EmojiEmotions
 import androidx.compose.material.icons.outlined.ModeComment
-import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -47,7 +45,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -57,31 +54,21 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.novelrealm.mobile.data.remote.dto.BlockActivityDto
 import com.novelrealm.mobile.data.remote.dto.EmojiTallyDto
 import com.novelrealm.mobile.data.remote.dto.PassageCommentDto
 import com.novelrealm.mobile.data.remote.dto.UserSearchDto
-import com.novelrealm.mobile.data.remote.resolveImageUrl
 import com.novelrealm.mobile.data.repository.PassageRepository
-import com.novelrealm.mobile.ui.components.CommentGif
+import com.novelrealm.mobile.ui.comments.CommentThread
+import com.novelrealm.mobile.ui.comments.toThreadComment
 import com.novelrealm.mobile.ui.components.MentionSuggestionRow
-import com.novelrealm.mobile.ui.components.MentionText
-import com.novelrealm.mobile.ui.util.relativeTimeLabel
 
 // NB : `AttachedGifPreview` et `GifButton` viennent de ChapterComments.kt — même
 // paquet, pas d'import : les deux composers doivent rester identiques au pixel.
-
-/**
- * Réponses affichées d'emblée dans un fil de passage — même règle que la fin de
- * chapitre (issue #45, §6) : au-delà, « Voir les N autres réponses ».
- */
-private const val VisiblePassageReplies = 2
 
 /**
  * Marque d'activité d'un passage (#41, §4) — une **note de bas de ligne**, pas une
@@ -308,11 +295,19 @@ fun PassageThreadSheet(
                         )
 
                         else -> state.thread.forEach { root ->
-                            PassageThread(
-                                root = root,
-                                onDelete = onDelete,
-                                onReply = onReply,
+                            // Même composant que la discussion de fin de chapitre :
+                            // une réponse doit se lire pareil partout (issue #45, §6).
+                            // La table id -> DTO rend au ViewModel l'objet qu'il
+                            // attend, sans le faire transiter par l'affichage.
+                            val byId = remember(root) {
+                                (listOf(root) + root.replies).associateBy { it.id }
+                            }
+                            CommentThread(
+                                root = remember(root) { root.toThreadComment() },
+                                onReply = { target, _ -> byId[target.id]?.let(onReply) },
+                                onDelete = { comment, _ -> byId[comment.id]?.let(onDelete) },
                                 onOpenUser = onOpenUser,
+                                modifier = Modifier.padding(bottom = 10.dp),
                             )
                         }
                     }
@@ -358,52 +353,6 @@ fun PassageThreadSheet(
     }
 }
 
-/**
- * Un fil complet : la racine, puis ses réponses décalées d'UN cran — jamais deux,
- * le serveur garantit la profondeur. Au-delà de [VisiblePassageReplies], les
- * réponses se replient derrière « Voir les N autres réponses » (issue #45, §6),
- * sauf s'il n'y en aurait qu'une à cacher : un bouton coûterait plus cher.
- */
-@Composable
-private fun PassageThread(
-    root: PassageCommentDto,
-    onDelete: (PassageCommentDto) -> Unit,
-    onReply: (PassageCommentDto) -> Unit,
-    onOpenUser: (Long) -> Unit,
-) {
-    var expanded by remember(root.id) { mutableStateOf(false) }
-    val collapsible = root.replies.size > VisiblePassageReplies + 1 && !expanded
-    val visibleReplies = if (collapsible) root.replies.take(VisiblePassageReplies) else root.replies
-
-    PassageCommentRow(
-        comment = root,
-        onDelete = { onDelete(root) },
-        onReply = { onReply(root) },
-        onOpenUser = onOpenUser,
-    )
-    visibleReplies.forEach { reply ->
-        PassageCommentRow(
-            comment = reply,
-            onDelete = { onDelete(reply) },
-            onReply = { onReply(reply) },
-            onOpenUser = onOpenUser,
-            modifier = Modifier.padding(start = 22.dp),
-        )
-    }
-    if (collapsible) {
-        Text(
-            text = "Voir les ${root.replies.size - VisiblePassageReplies} autres réponses",
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier
-                .padding(start = 22.dp, bottom = 8.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .clickable { expanded = true }
-                .padding(horizontal = 6.dp, vertical = 4.dp),
-        )
-    }
-}
 
 /** « 3 commentaires », ou l'invitation quand il n'y en a pas encore. */
 private fun commentCountLabel(count: Int): String = when (count) {
@@ -556,161 +505,6 @@ private fun GhostAction(icon: ImageVector, label: String, onClick: () -> Unit) {
     }
 }
 
-/**
- * Un message du fil, présenté comme une **bulle** et non comme une ligne de tableau.
- *
- * <p>Le corps occupe toute la largeur de la bulle au lieu d'être coincé entre l'avatar
- * et une corbeille : c'est le texte qu'on vient lire, il ne doit pas être le seul
- * élément à céder de la place. L'auteur et l'heure passent au-dessus, en petit, et la
- * suppression n'apparaît que sur ses propres messages.
- */
-@Composable
-private fun PassageCommentRow(
-    comment: PassageCommentDto,
-    onDelete: () -> Unit,
-    onReply: () -> Unit,
-    onOpenUser: (Long) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    // Un spoiler est MASQUÉ, pas flouté : `Modifier.blur` ne fait rien avant Android 12,
-    // et un flou qui ne s'applique pas révèle exactement ce qu'il devait cacher.
-    var revealed by remember(comment.id) { mutableStateOf(!comment.spoiler) }
-
-    val shape = RoundedCornerShape(16.dp)
-    Surface(
-        // Fond NEUTRE pour tout le monde. Teinter ses propres messages d'un aplat
-        // d'accent donnait un brun boueux dès que l'accent était chaud : la couleur du
-        // thème se mélangeait à celle de la surface au lieu de s'y poser. Un contour
-        // fin distingue tout aussi bien, sans salir le fond.
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-        shape = shape,
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(bottom = 8.dp)
-            .then(
-                if (comment.mine) {
-                    // Volontairement très pâle : le contour doit se deviner, pas
-                    // encadrer. À 0.35 il découpait chaque bulle et la liste se lisait
-                    // comme une grille de formulaire.
-                    Modifier.border(
-                        1.dp,
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                        shape,
-                    )
-                } else {
-                    Modifier
-                },
-            ),
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-            val userId = comment.userId
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                PassageAvatar(
-                    url = comment.avatarUrl,
-                    pseudo = comment.pseudo,
-                    onClick = userId?.let { { onOpenUser(it) } },
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = comment.pseudo ?: "Lecteur",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (comment.mine) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = if (userId != null) {
-                        Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .clickable { onOpenUser(userId) }
-                    } else {
-                        Modifier
-                    },
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = relativeTimeLabel(comment.createdAt),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f),
-                )
-                if (comment.mine) {
-                    Icon(
-                        imageVector = Icons.Outlined.Delete,
-                        contentDescription = "Supprimer",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .clickable(onClick = onDelete)
-                            .padding(4.dp)
-                            .size(15.dp),
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(7.dp))
-            if (revealed) {
-                if (comment.body.isNotBlank()) {
-                    MentionText(
-                        body = comment.body,
-                        mentions = comment.mentions,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp),
-                        onMentionClick = onOpenUser,
-                    )
-                }
-                comment.gifUrl?.let { gif ->
-                    if (comment.body.isNotBlank()) Spacer(Modifier.height(7.dp))
-                    CommentGif(
-                        gifUrl = gif,
-                        previewUrl = comment.gifPreviewUrl,
-                        width = 0,
-                        height = 0,
-                    )
-                }
-            } else {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f))
-                        .clickable { revealed = true }
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Visibility,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(14.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "Spoiler — toucher pour révéler",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            // « Répondre » en pied et non en tête : on décide de répondre APRÈS avoir
-            // lu, jamais avant. Sans cadre ni fond, pour ne pas peser autant que le
-            // message lui-même.
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = "Répondre",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable(onClick = onReply)
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-            )
-        }
-    }
-}
 
 /** Petite pastille d'option de la barre de saisie. */
 @Composable
@@ -732,38 +526,6 @@ private fun ComposerChip(label: String, active: Boolean, onClick: () -> Unit) {
     )
 }
 
-@Composable
-private fun PassageAvatar(url: String?, pseudo: String?, onClick: (() -> Unit)? = null) {
-    val clickModifier = if (onClick != null) {
-        Modifier.clip(CircleShape).clickable(onClick = onClick)
-    } else {
-        Modifier
-    }
-    val resolved = resolveImageUrl(url)
-    if (resolved != null) {
-        AsyncImage(
-            model = resolved,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.size(22.dp).clip(CircleShape).then(clickModifier),
-        )
-    } else {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(22.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
-                .then(clickModifier),
-        ) {
-            Text(
-                text = pseudo.orEmpty().take(1).uppercase().ifBlank { "?" },
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-    }
-}
 
 /**
  * Saisie d'un message de passage — même bulle que le composer de fin de chapitre.

@@ -72,6 +72,12 @@ import com.novelrealm.mobile.ui.theme.palette
 fun ProfileScreen(
     onLogout: () -> Unit,
     onOpenSettings: (route: String) -> Unit,
+    /**
+     * Notifications non lues, tenu par la coquille (MainScreen) : la même valeur
+     * pastille l'onglet Profil en bas et la ligne « Activité » ci-dessous.
+     * Arriver ici en voyant une pastille sans savoir où aller serait une impasse.
+     */
+    unreadNotifications: Long = 0,
     modifier: Modifier = Modifier,
     viewModel: ProfileViewModel = viewModel(),
 ) {
@@ -131,9 +137,10 @@ fun ProfileScreen(
                         SettingsDivider()
                         SettingsRow(
                             icon = Icons.AutoMirrored.Filled.Chat,
-                            title = "Mes commentaires",
-                            subtitle = "Tout ce que tu as écrit, au même endroit",
-                            onClick = { onOpenSettings(SettingsRoutes.MY_COMMENTS) },
+                            title = "Activité",
+                            subtitle = "Ce qu'on t'écrit, et tout ce que tu as écrit",
+                            badge = unreadNotifications,
+                            onClick = { onOpenSettings(SettingsRoutes.ACTIVITY) },
                         )
                     }
 
