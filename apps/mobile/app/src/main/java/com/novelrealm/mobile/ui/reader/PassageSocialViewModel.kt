@@ -20,6 +20,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/** Combien de participants proposer quand on tape « @ » sans rien après. */
+private const val MAX_THREAD_PARTICIPANTS = 8
+
 data class PassageSocialUiState(
     /** Activité par index de bloc — la clé est l'index ACTUEL, recalé par le serveur. */
     val activity: Map<Int, BlockActivityDto> = emptyMap(),
@@ -243,8 +246,14 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
     private fun refreshMentionSuggestions(draft: String) {
         mentionSearchJob?.cancel()
         val query = activeMentionQuery(draft)
-        if (query.isNullOrBlank()) {
+        if (query == null) {
             _state.update { it.copy(mentionSuggestions = emptyList()) }
+            return
+        }
+        // « @ » seul : les gens du fil ouvert, sans requête. Même règle que la
+        // discussion de fin de chapitre — le geste doit répondre pareil partout.
+        if (query.isBlank()) {
+            _state.update { it.copy(mentionSuggestions = threadParticipants()) }
             return
         }
         mentionSearchJob = viewModelScope.launch {
@@ -257,6 +266,15 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
             }
         }
     }
+
+    /** Les auteurs du fil ouvert, soi-même exclu — aucune requête réseau. */
+    private fun threadParticipants(): List<UserSearchDto> =
+        _state.value.thread
+            .flatMap { comment -> listOf(comment) + comment.replies }
+            .filter { !it.mine && it.userId != null && !it.pseudo.isNullOrBlank() }
+            .distinctBy { it.userId }
+            .take(MAX_THREAD_PARTICIPANTS)
+            .map { UserSearchDto(id = it.userId!!, pseudo = it.pseudo!!, avatarUrl = it.avatarUrl) }
 
     // ── GIF (issue #45, §5) ───────────────────────────────────────────────────
 

@@ -5,8 +5,8 @@ import com.novelrealm.mobile.data.remote.dto.GifPageDto
 import retrofit2.http.GET
 import retrofit2.http.Query
 
-// Recherche de GIF (issue #45, §5) — proxy Tenor côté back : l'app ne parle
-// jamais à Tenor et n'embarque aucune clé d'API.
+// Recherche de GIF (issue #45, §5) — proxy KLIPY côté back : l'app ne parle
+// jamais au fournisseur et n'embarque aucune clé d'API.
 interface GifApi {
 
     /** La fonctionnalité est-elle configurée sur ce serveur ? (sinon : bouton masqué) */

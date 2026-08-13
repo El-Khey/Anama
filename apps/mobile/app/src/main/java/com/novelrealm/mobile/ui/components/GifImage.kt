@@ -98,7 +98,7 @@ fun CommentGif(
             )
         } else {
             AsyncImage(
-                // La vignette figée si Tenor en fournit une ; sinon le GIF passé au
+                // La vignette figée si le fournisseur en donne une ; sinon le GIF passé au
                 // loader PAR DÉFAUT de Coil (sans décodeur GIF), qui n'en décode que
                 // la première image — exactement l'effet recherché.
                 model = previewUrl ?: gifUrl,

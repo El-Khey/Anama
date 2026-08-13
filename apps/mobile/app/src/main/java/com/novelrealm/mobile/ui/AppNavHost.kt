@@ -9,11 +9,11 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.novelrealm.mobile.ui.detail.NovelDetailScreen
 import com.novelrealm.mobile.ui.main.MainScreen
-import com.novelrealm.mobile.ui.notifications.NotificationsScreen
+import com.novelrealm.mobile.ui.inbox.InboxScreen
+import com.novelrealm.mobile.ui.inbox.InboxTab
 import com.novelrealm.mobile.ui.profile.AccountScreen
 import com.novelrealm.mobile.ui.profile.AppearanceScreen
 import com.novelrealm.mobile.ui.profile.EditProfileScreen
-import com.novelrealm.mobile.ui.profile.MyCommentsScreen
 import com.novelrealm.mobile.ui.profile.ReaderSettingsScreen
 import com.novelrealm.mobile.ui.profile.SettingsRoutes
 import com.novelrealm.mobile.ui.quotes.MyQuotesScreen
@@ -76,18 +76,21 @@ fun AppNavHost(onLogout: () -> Unit, modifier: Modifier = Modifier) {
                 },
             )
         }
-        composable(SettingsRoutes.MY_COMMENTS) {
-            MyCommentsScreen(
+        // ── La boîte de réception (issue #45, §3 et §4) ──
+        // Un seul écran, deux portes : la cloche l'ouvre sur les alertes, le profil
+        // sur mes messages. Les onglets font le reste, sans nouvelle navigation.
+        composable("notifications") {
+            InboxScreen(
                 onBack = { navController.popBackStack() },
                 onOpenChapter = openChapterAt,
+                initialTab = InboxTab.Alerts,
             )
         }
-
-        // ── La cloche (issue #45, §3) ──
-        composable("notifications") {
-            NotificationsScreen(
+        composable(SettingsRoutes.MY_COMMENTS) {
+            InboxScreen(
                 onBack = { navController.popBackStack() },
                 onOpenChapter = openChapterAt,
+                initialTab = InboxTab.Mine,
             )
         }
 

@@ -39,7 +39,7 @@ class CommentRepository(private val commentApi: CommentApi) {
 
     /**
      * Publie un message. `mentionedUserIds` : résolus par l'autocomplétion (le
-     * serveur re-vérifie tout). `gifUrl`/`gifPreviewUrl` : GIF Tenor joint —
+     * serveur re-vérifie tout). `gifUrl`/`gifPreviewUrl` : GIF joint —
      * `body` peut alors être vide, jamais les deux à la fois.
      */
     suspend fun create(

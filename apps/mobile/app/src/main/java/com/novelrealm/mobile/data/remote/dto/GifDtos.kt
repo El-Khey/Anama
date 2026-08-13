@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 /**
  * Miroir de `GifResponse` (back) : un GIF proposé par la recherche (issue #45, §5).
  *
- * `url` est la version animée (format « tinygif » de Tenor, léger), `previewUrl`
+ * `url` est la version animée (taille « sm » de KLIPY, ~220 px), `previewUrl`
  * une image FIGÉE du même GIF — c'est elle qu'on affiche par défaut, l'animation
  * ne démarrant qu'au toucher. `width`/`height` fixent le ratio avant chargement,
  * pour que la grille ne saute pas.
@@ -19,7 +19,7 @@ data class GifDto(
     val height: Int = 0,
 )
 
-/** Une page de résultats. `next` = curseur Tenor opaque ; vide = fin. */
+/** Une page de résultats. `next` = curseur opaque rendu par le back ; vide = fin. */
 @Serializable
 data class GifPageDto(
     val results: List<GifDto> = emptyList(),

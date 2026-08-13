@@ -57,7 +57,7 @@ import kotlinx.coroutines.delay
 /**
  * Sélecteur de GIF (issue #45, §5) — une feuille : champ de recherche, grille de
  * vignettes FIGÉES (les GIF ne s'animent que dans le fil, à la demande), et
- * pagination par le curseur Tenor.
+ * pagination par le curseur rendu par le back.
  *
  * Les tendances s'affichent avant toute saisie : un sélecteur vide qui attend
  * qu'on tape est un sélecteur qu'on referme.
@@ -228,7 +228,7 @@ fun GifPickerSheet(
 
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "GIF fournis par Tenor",
+                text = "GIF fournis par KLIPY",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                 modifier = Modifier.align(Alignment.CenterHorizontally),

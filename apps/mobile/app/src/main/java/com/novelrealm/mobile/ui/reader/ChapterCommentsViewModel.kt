@@ -21,6 +21,9 @@ import kotlinx.coroutines.launch
 /** Nombre de fils affichés d'un coup sous le chapitre, et à chaque « voir plus ». */
 private const val PageSize = 6
 
+/** Combien de participants proposer quand on tape « @ » sans rien après. */
+private const val MaxParticipants = 8
+
 /**
  * Ce que le rédacteur est en train de faire. Un seul état à la fois : on ne peut pas
  * modifier un message et répondre à un autre en même temps.
@@ -250,8 +253,17 @@ class ChapterCommentsViewModel(private val chapterId: Long) : ViewModel() {
     private fun refreshMentionSuggestions(draft: String) {
         mentionSearchJob?.cancel()
         val query = activeMentionQuery(draft)
-        if (query.isNullOrBlank()) {
+        if (query == null) {
             _state.update { it.copy(mentionSuggestions = emptyList()) }
+            return
+        }
+        // « @ » seul, rien de tapé encore : proposer les gens DÉJÀ dans la
+        // discussion. Sans ça, la rangée restait vide jusqu'à ce qu'on devine une
+        // lettre du bon pseudo — et une fonctionnalité qui ne se montre pas au
+        // premier geste passe pour absente. C'est aussi le cas courant : on
+        // mentionne quelqu'un à qui on est en train de parler.
+        if (query.isBlank()) {
+            _state.update { it.copy(mentionSuggestions = discussionParticipants()) }
             return
         }
         mentionSearchJob = viewModelScope.launch {
@@ -264,6 +276,19 @@ class ChapterCommentsViewModel(private val chapterId: Long) : ViewModel() {
             }
         }
     }
+
+    /**
+     * Les auteurs présents dans la discussion chargée, soi-même exclu (on ne se
+     * mentionne pas) et les pierres tombales aussi. Purement local : aucune
+     * requête pour le geste le plus fréquent.
+     */
+    private fun discussionParticipants(): List<UserSearchDto> =
+        _state.value.threads
+            .flatMap { thread -> listOf(thread) + thread.replies }
+            .filter { !it.mine && !it.deleted && it.userId != null && !it.pseudo.isNullOrBlank() }
+            .distinctBy { it.userId }
+            .take(MaxParticipants)
+            .map { UserSearchDto(id = it.userId!!, pseudo = it.pseudo!!, avatarUrl = it.avatarUrl) }
 
     // ── GIF (issue #45, §5) ───────────────────────────────────────────────────
 
