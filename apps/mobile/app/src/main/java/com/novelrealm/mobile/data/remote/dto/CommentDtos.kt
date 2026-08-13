@@ -23,15 +23,37 @@ data class ChapterCommentDto(
     val edited: Boolean = false,
     val createdAt: String? = null,
     val updatedAt: String? = null,
+    /** Qui est visé par les `@pseudo` du texte (issue #45, §2). */
+    val mentions: List<MentionDto> = emptyList(),
+    /** GIF joint (issue #45, §5) : `body` peut alors être vide. */
+    val gifUrl: String? = null,
+    val gifPreviewUrl: String? = null,
     val replies: List<ChapterCommentDto> = emptyList(),
+)
+
+/**
+ * Miroir de `MentionResponse` (back). `handle` = le pseudo tel qu'il figurait dans
+ * le texte à la publication — c'est LUI qu'on cherche dans le corps pour la mise
+ * en évidence ; `pseudo` = le pseudo actuel, pour l'affichage du profil.
+ */
+@Serializable
+data class MentionDto(
+    val userId: Long,
+    val handle: String = "",
+    val pseudo: String? = null,
 )
 
 // Corps de `POST /api/chapters/{id}/comments`. `parentId` répond à un message :
 // le serveur re-rattache toujours la réponse à la racine du fil.
+// `mentionedUserIds` : résolus par l'autocomplétion — le serveur re-vérifie tout
+// (plafond de 5, auto-mention, présence réelle du @pseudo dans le texte).
 @Serializable
 data class CreateCommentRequestDto(
     val body: String,
     val parentId: Long? = null,
+    val mentionedUserIds: List<Long> = emptyList(),
+    val gifUrl: String? = null,
+    val gifPreviewUrl: String? = null,
 )
 
 // Corps de `PATCH /api/comments/{id}` (modification de son propre message).

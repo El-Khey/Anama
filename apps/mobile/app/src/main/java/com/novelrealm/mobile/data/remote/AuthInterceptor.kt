@@ -4,7 +4,7 @@ import com.novelrealm.mobile.data.local.TokenStorage
 import okhttp3.Interceptor
 import okhttp3.Response
 
-// Deux responsabilités autour du JWT (#33 + gestion de session #35) :
+// Trois responsabilités autour du JWT (#33 + gestion de session #35 + issue #45, §1) :
 //
 // 1. Ajoute l'en-tête `Authorization: Bearer <token>` à chaque requête, dès qu'un
 //    token est mémorisé. C'est ce qui rend l'app « connectée » : le back valide ce
@@ -14,6 +14,12 @@ import okhttp3.Response
 //    revient en 401, le token n'est plus valide → on notifie `onUnauthorized`, qui
 //    déconnecte proprement et renvoie l'utilisateur vers le login. Sans ça, l'app se
 //    croyait connectée et chaque écran tombait sur « Session expirée » sans issue.
+//
+// 3. Capture le renouvellement GLISSANT (issue #45, §1) : passé la moitié de sa vie,
+//    le token est ré-émis par le serveur dans l'en-tête `X-Refreshed-Token` de la
+//    réponse. On le remplace ici, silencieusement — c'est ce qui fait qu'un
+//    utilisateur actif ne retombe JAMAIS sur l'écran de connexion ; seule une vraie
+//    période d'inactivité (durée de vie complète du token) l'y ramène.
 //
 // Les endpoints publics d'auth (/api/auth/** : login, register, logout) sont exclus :
 // ils n'exigent pas de token, et un 401 y signifie « mauvais identifiants », pas
@@ -43,6 +49,21 @@ class AuthInterceptor(
             onUnauthorized()
         }
 
+        // Token ré-émis par le serveur → on adopte le nouveau sans rien afficher.
+        // Garde-fou `token != null` : jamais d'adoption sur un appel anonyme, même
+        // si un serveur mal configuré envoyait l'en-tête à tort.
+        if (!token.isNullOrBlank() && !isAuthEndpoint) {
+            val refreshed = response.header(REFRESHED_TOKEN_HEADER)
+            if (!refreshed.isNullOrBlank() && refreshed != token) {
+                tokenStorage.saveSession(refreshed, tokenStorage.getPseudo())
+            }
+        }
+
         return response
+    }
+
+    companion object {
+        /** Doit rester identique à `AuthenticationService.REFRESHED_TOKEN_HEADER` (back). */
+        const val REFRESHED_TOKEN_HEADER = "X-Refreshed-Token"
     }
 }

@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.outlined.Comment
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.GifBox
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -56,7 +57,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.novelrealm.mobile.data.remote.dto.ChapterCommentDto
+import com.novelrealm.mobile.data.remote.dto.UserSearchDto
 import com.novelrealm.mobile.data.remote.resolveImageUrl
+import com.novelrealm.mobile.ui.components.CommentGif
+import com.novelrealm.mobile.ui.components.MentionSuggestionRow
+import com.novelrealm.mobile.ui.components.MentionText
 import com.novelrealm.mobile.ui.util.relativeTimeLabel
 
 /**
@@ -64,6 +69,14 @@ import com.novelrealm.mobile.ui.util.relativeTimeLabel
  * côté back : c'est lui qui refuse, l'app ne fait qu'éviter d'aller au refus.
  */
 private const val MaxCommentLength = 2_000
+
+/**
+ * Réponses affichées d'emblée dans un fil. Au-delà, elles se replient derrière
+ * « Voir les N autres réponses » (issue #45, §6) : un fil de quinze réponses ne
+ * doit pas engloutir la page du chapitre. On ne replie jamais pour UNE seule
+ * réponse cachée — un bouton coûterait plus qu'il ne cache.
+ */
+private const val VisibleReplies = 2
 
 /**
  * Discussion du chapitre, posée **dans le fil du chapitre** — on continue de défiler
@@ -84,11 +97,12 @@ fun ChapterCommentsSection(
     state: ChapterCommentsUiState,
     foreground: Color,
     onWrite: () -> Unit,
-    onReply: (rootId: Long, pseudo: String?, mention: Boolean) -> Unit,
+    onReply: (rootId: Long, toUserId: Long?, toPseudo: String?, mention: Boolean) -> Unit,
     onEdit: (comment: ChapterCommentDto, rootId: Long?) -> Unit,
     onDelete: (comment: ChapterCommentDto, rootId: Long?) -> Unit,
     onLoadMore: () -> Unit,
     onRetry: () -> Unit,
+    onOpenUser: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
@@ -142,6 +156,7 @@ fun ChapterCommentsSection(
                         onReply = onReply,
                         onEdit = onEdit,
                         onDelete = onDelete,
+                        onOpenUser = onOpenUser,
                     )
                 }
 
@@ -256,10 +271,18 @@ private fun WriteButton(foreground: Color, onClick: () -> Unit) {
 private fun ThreadCard(
     thread: ChapterCommentDto,
     foreground: Color,
-    onReply: (Long, String?, Boolean) -> Unit,
+    onReply: (Long, Long?, String?, Boolean) -> Unit,
     onEdit: (ChapterCommentDto, Long?) -> Unit,
     onDelete: (ChapterCommentDto, Long?) -> Unit,
+    onOpenUser: (Long) -> Unit,
 ) {
+    // Repli des longues listes de réponses (issue #45, §6). L'état est propre au
+    // fil : déplier l'un ne déplie pas les autres.
+    var expanded by remember(thread.id) { mutableStateOf(false) }
+    val replies = thread.replies
+    val collapsible = replies.size > VisibleReplies + 1 && !expanded
+    val visibleReplies = if (collapsible) replies.take(VisibleReplies) else replies
+
     Surface(
         // Teinte dérivée de la couleur du texte : la carte s'éclaircit sur fond sombre
         // et s'assombrit sur fond clair, sans qu'on ait à décliner une palette par thème.
@@ -271,38 +294,54 @@ private fun ThreadCard(
             CommentBlock(
                 comment = thread,
                 foreground = foreground,
-                onReply = { onReply(thread.id, thread.pseudo, false) },
+                onReply = { onReply(thread.id, thread.userId, thread.pseudo, false) },
                 onEdit = { onEdit(thread, null) },
                 onDelete = { onDelete(thread, null) },
+                onOpenUser = onOpenUser,
             )
 
-            thread.replies.forEach { reply ->
+            visibleReplies.forEach { reply ->
                 // `IntrinsicSize.Min` donne au filet la hauteur exacte de la réponse ;
                 // un `fillMaxHeight` seul n'aurait rien à quoi se mesurer ici.
                 Row(modifier = Modifier.padding(top = 14.dp).height(IntrinsicSize.Min)) {
-                    // Un seul filet pour toutes les réponses : le fil se lit d'un coup
-                    // d'œil, sans l'escalier qu'un second niveau d'indentation créerait.
-                    Box(
-                        modifier = Modifier
-                            .padding(start = 6.dp, end = 12.dp)
-                            .width(2.dp)
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(50))
-                            .background(foreground.copy(alpha = 0.15f)),
-                    )
+                    ReplyRail(foreground)
                     CommentBlock(
                         comment = reply,
                         foreground = foreground,
-                        // Répondre à une réponse reste dans ce fil : le pseudo visé est
-                        // simplement préfixé au message.
-                        onReply = { onReply(thread.id, reply.pseudo, true) },
+                        // Répondre à une réponse reste dans ce fil : l'auteur visé est
+                        // mentionné, donc notifié (issue #45, §2 et §3).
+                        onReply = { onReply(thread.id, reply.userId, reply.pseudo, true) },
                         onEdit = { onEdit(reply, thread.id) },
                         onDelete = { onDelete(reply, thread.id) },
+                        onOpenUser = onOpenUser,
+                    )
+                }
+            }
+
+            if (collapsible) {
+                Row(modifier = Modifier.padding(top = 10.dp).height(IntrinsicSize.Min)) {
+                    ReplyRail(foreground)
+                    TextAction(
+                        label = "Voir les ${replies.size - VisibleReplies} autres réponses",
+                        onClick = { expanded = true },
                     )
                 }
             }
         }
     }
+}
+
+/** Le filet vertical qui rattache les réponses à leur fil — un seul niveau, toujours. */
+@Composable
+private fun ReplyRail(foreground: Color) {
+    Box(
+        modifier = Modifier
+            .padding(start = 6.dp, end = 12.dp)
+            .width(2.dp)
+            .fillMaxHeight()
+            .clip(RoundedCornerShape(50))
+            .background(foreground.copy(alpha = 0.15f)),
+    )
 }
 
 @Composable
@@ -312,6 +351,7 @@ private fun CommentBlock(
     onReply: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onOpenUser: (Long) -> Unit,
 ) {
     // `remember` avant toute branche : un message peut devenir une pierre tombale sous
     // nos yeux, et un `return` anticipé ferait varier le nombre de blocs mémorisés.
@@ -326,8 +366,14 @@ private fun CommentBlock(
         return
     }
 
+    val userId = comment.userId
     Row(modifier = Modifier.fillMaxWidth()) {
-        Avatar(url = comment.avatarUrl, pseudo = comment.pseudo, foreground = foreground)
+        Avatar(
+            url = comment.avatarUrl,
+            pseudo = comment.pseudo,
+            foreground = foreground,
+            onClick = userId?.let { { onOpenUser(it) } },
+        )
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -338,7 +384,17 @@ private fun CommentBlock(
                     color = foreground.copy(alpha = 0.95f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .then(
+                            if (userId != null) {
+                                Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable { onOpenUser(userId) }
+                            } else {
+                                Modifier
+                            },
+                        ),
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
@@ -349,12 +405,26 @@ private fun CommentBlock(
                     maxLines = 1,
                 )
             }
-            Spacer(Modifier.height(5.dp))
-            Text(
-                text = comment.body.orEmpty(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = foreground.copy(alpha = 0.85f),
-            )
+            val body = comment.body.orEmpty()
+            if (body.isNotBlank()) {
+                Spacer(Modifier.height(5.dp))
+                MentionText(
+                    body = body,
+                    mentions = comment.mentions,
+                    color = foreground.copy(alpha = 0.85f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    onMentionClick = onOpenUser,
+                )
+            }
+            comment.gifUrl?.let { gif ->
+                Spacer(Modifier.height(7.dp))
+                CommentGif(
+                    gifUrl = gif,
+                    previewUrl = comment.gifPreviewUrl,
+                    width = 0,
+                    height = 0,
+                )
+            }
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 TextAction(label = "Répondre", onClick = onReply)
@@ -418,14 +488,24 @@ private fun TextAction(
 }
 
 @Composable
-private fun Avatar(url: String?, pseudo: String?, foreground: Color) {
+private fun Avatar(
+    url: String?,
+    pseudo: String?,
+    foreground: Color,
+    onClick: (() -> Unit)? = null,
+) {
+    val clickModifier = if (onClick != null) {
+        Modifier.clip(CircleShape).clickable(onClick = onClick)
+    } else {
+        Modifier
+    }
     val resolved = resolveImageUrl(url)
     if (resolved != null) {
         AsyncImage(
             model = resolved,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.size(32.dp).clip(CircleShape),
+            modifier = Modifier.size(32.dp).clip(CircleShape).then(clickModifier),
         )
     } else {
         Box(
@@ -433,7 +513,8 @@ private fun Avatar(url: String?, pseudo: String?, foreground: Color) {
             modifier = Modifier
                 .size(32.dp)
                 .clip(CircleShape)
-                .background(foreground.copy(alpha = 0.12f)),
+                .background(foreground.copy(alpha = 0.12f))
+                .then(clickModifier),
         ) {
             Text(
                 text = pseudo.orEmpty().take(1).uppercase().ifBlank { "?" },
@@ -454,6 +535,9 @@ private fun Avatar(url: String?, pseudo: String?, foreground: Color) {
  * Il reprend l'habillage Material des autres panneaux du lecteur (réglages) plutôt que
  * les couleurs de lecture : c'est une surface flottante, pas un morceau de la page.
  *
+ * Depuis l'issue #45 : suggestions de mention au-dessus du champ (§2) et GIF joint
+ * (§5) — bouton à gauche de la bulle, aperçu au-dessus, retirable d'une croix.
+ *
  * <p><b>Sur le placement vertical.</b> Le panneau ne pose qu'un seul retrait bas, égal
  * à `max(clavier, barre de navigation)`. Deux pièges ont été écartés ici :
  * <ul>
@@ -472,6 +556,9 @@ fun CommentComposerSheet(
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
     onClose: () -> Unit,
+    onPickMention: (UserSearchDto) -> Unit,
+    onOpenGifPicker: () -> Unit,
+    onRemoveGif: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -555,6 +642,21 @@ fun CommentComposerSheet(
             }
 
             Spacer(Modifier.height(10.dp))
+
+            // Le GIF joint, au-dessus du champ — là où il apparaîtra dans le message.
+            state.attachedGif?.let { gif ->
+                AttachedGifPreview(
+                    previewUrl = gif.previewUrl.ifBlank { gif.url },
+                    onRemove = onRemoveGif,
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+
+            MentionSuggestionRow(
+                suggestions = state.mentionSuggestions,
+                onPick = onPickMention,
+            )
+
             ComposerInputRow(
                 draft = state.draft,
                 canSend = state.canSend,
@@ -562,6 +664,17 @@ fun CommentComposerSheet(
                 focusRequester = focusRequester,
                 onDraftChange = onDraftChange,
                 onSend = onSend,
+                // Un GIF ne se joint qu'à un message NEUF : la modification ne touche
+                // que le texte, et un seul GIF par message.
+                onOpenGifPicker = if (
+                    state.gifAvailable &&
+                    state.attachedGif == null &&
+                    state.target !is ComposerTarget.Edit
+                ) {
+                    onOpenGifPicker
+                } else {
+                    null
+                },
             )
 
             // Le compteur n'apparaît qu'à l'approche de la limite : affiché en
@@ -587,8 +700,47 @@ fun CommentComposerSheet(
     }
 }
 
+/** L'aperçu du GIF joint : vignette figée + croix pour le retirer. */
+@Composable
+fun AttachedGifPreview(previewUrl: String, onRemove: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(64.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)),
+        ) {
+            AsyncImage(
+                model = previewUrl,
+                contentDescription = "GIF joint",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize(),
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = "GIF joint",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            imageVector = Icons.Filled.Close,
+            contentDescription = "Retirer le GIF",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .clip(CircleShape)
+                .clickable(onClick = onRemove)
+                .padding(6.dp)
+                .size(16.dp),
+        )
+    }
+}
+
 /**
- * La ligne de saisie : une bulle qui grandit, et le bouton d'envoi à côté.
+ * La ligne de saisie : le bouton GIF (s'il a lieu d'être), une bulle qui grandit, et
+ * le bouton d'envoi à côté.
  *
  * <p><b>Pourquoi une bulle maison et pas un `OutlinedTextField`.</b> Ce dernier impose
  * une hauteur minimale de 56 dp et des marges internes prévues pour un libellé
@@ -611,8 +763,13 @@ private fun ComposerInputRow(
     focusRequester: FocusRequester,
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
+    onOpenGifPicker: (() -> Unit)?,
 ) {
     Row(verticalAlignment = Alignment.Bottom) {
+        if (onOpenGifPicker != null) {
+            GifButton(onClick = onOpenGifPicker)
+            Spacer(Modifier.width(8.dp))
+        }
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
             shape = RoundedCornerShape(23.dp),
@@ -653,6 +810,26 @@ private fun ComposerInputRow(
 
         Spacer(Modifier.width(10.dp))
         SendButton(enabled = canSend, sending = isSending, onClick = onSend)
+    }
+}
+
+/** Le bouton GIF — même gabarit que le bouton d'envoi, en version sourde. */
+@Composable
+fun GifButton(onClick: () -> Unit) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .size(46.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+            .clickable(onClick = onClick),
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.GifBox,
+            contentDescription = "Joindre un GIF",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(22.dp),
+        )
     }
 }
 

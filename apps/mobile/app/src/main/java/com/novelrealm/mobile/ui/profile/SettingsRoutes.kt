@@ -12,4 +12,7 @@ object SettingsRoutes {
     // Pas un réglage, mais ouvert depuis l'onglet Profil par le même mécanisme :
     // la collection de citations (#41, §3).
     const val MY_QUOTES = "me/quotes"
+
+    // Tous ses commentaires, au même endroit (issue #45, §4).
+    const val MY_COMMENTS = "me/comments"
 }

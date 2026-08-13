@@ -96,6 +96,7 @@ import com.novelrealm.mobile.data.remote.dto.ChapterDto
 import com.novelrealm.mobile.data.remote.dto.displayTitle
 import com.novelrealm.mobile.di.ServiceLocator
 import com.novelrealm.mobile.ui.components.EmptyScreen
+import com.novelrealm.mobile.ui.components.GifPickerSheet
 import com.novelrealm.mobile.ui.components.LoadingScreen
 import com.novelrealm.mobile.ui.components.SheetScrim
 import com.novelrealm.mobile.ui.util.vmFactory
@@ -144,9 +145,17 @@ fun ReaderScreen(
     onBack: () -> Unit,
     /**
      * Bloc à rejoindre et à surligner à l'ouverture ; -1 = ouverture normale.
-     * Alimenté par « Aller au passage » depuis la collection de citations.
+     * Alimenté par « Aller au passage » depuis la collection de citations — et par
+     * les notifications de commentaire de passage (issue #45, §3).
      */
     highlightBlock: Int = -1,
+    /**
+     * Défile jusqu'à la discussion de fin de chapitre à l'ouverture — le lien
+     * profond des notifications de commentaire de chapitre (issue #45, §3).
+     */
+    openComments: Boolean = false,
+    /** Ouvre le profil public d'un utilisateur (mention ou pseudo touché — issue #45, §2). */
+    onOpenUser: (Long) -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: ReaderViewModel = viewModel(factory = vmFactory { ReaderViewModel(novelId, chapterId) }),
 ) {
@@ -292,14 +301,32 @@ fun ReaderScreen(
     // Un tap referme d'abord ce qui est ouvert : sinon il faudrait viser le voile.
     // Centralisé ici parce que les paragraphes interceptent désormais leurs propres
     // taps (pour l'appui long) et doivent reproduire exactement le même arbitrage.
+    // Le sélecteur de GIF passe en premier : c'est la feuille posée par-dessus les
+    // autres, elle doit céder avant elles.
     val onSurfaceTap: () -> Unit = {
         when {
+            comments.gifPickerOpen -> commentsViewModel.closeGifPicker()
+            passages.gifPickerOpen -> passageViewModel.closeGifPicker()
             settingsVisible -> settingsVisible = false
             comments.composerOpen -> commentsViewModel.closeComposer()
             quotingBlock != null -> quoteViewModel.cancel()
             passages.threadBlock != null -> passageViewModel.closeThread()
             else -> chromeVisible = !chromeVisible
         }
+    }
+
+    // Lien profond d'une notification de commentaire de chapitre : la discussion
+    // vit tout en bas de la page — on s'y rend dès que la mise en page est mesurée,
+    // et uniquement pour le chapitre demandé (pas après un balayage vers un autre).
+    LaunchedEffect(state.chapter?.id, state.isLoading) {
+        if (!openComments || state.isLoading || state.chapter?.id != chapterId) {
+            return@LaunchedEffect
+        }
+        val max = withTimeoutOrNull(3000) {
+            snapshotFlow { scrollState.maxValue }.first { it != Int.MAX_VALUE && it > 0 }
+        } ?: return@LaunchedEffect
+        scrollState.animateScrollTo(max)
+        chromeVisible = false
     }
 
     // Rejoint le bloc demandé dès qu'il est mesuré. La page du lecteur n'est pas une
@@ -389,6 +416,7 @@ fun ReaderScreen(
                         onDeleteComment = commentsViewModel::delete,
                         onLoadMoreComments = commentsViewModel::loadMore,
                         onRetryComments = commentsViewModel::load,
+                        onOpenUser = onOpenUser,
                         highlightedBlock = highlightedBlock,
                         highlightAlpha = highlightAlpha,
                         // Mesure retenue au PREMIER passage seulement, quand le
@@ -595,6 +623,9 @@ fun ReaderScreen(
                 onDraftChange = commentsViewModel::setDraft,
                 onSend = commentsViewModel::send,
                 onClose = commentsViewModel::closeComposer,
+                onPickMention = commentsViewModel::pickMention,
+                onOpenGifPicker = commentsViewModel::openGifPicker,
+                onRemoveGif = commentsViewModel::removeGif,
             )
         }
 
@@ -636,6 +667,45 @@ fun ReaderScreen(
                 onToggleSpoiler = passageViewModel::toggleSpoiler,
                 onSend = passageViewModel::send,
                 onClose = passageViewModel::closeThread,
+                onOpenUser = onOpenUser,
+                onPickMention = passageViewModel::pickMention,
+                onOpenGifPicker = passageViewModel::openGifPicker,
+                onRemoveGif = passageViewModel::removeGif,
+            )
+        }
+
+        // ── Sélecteur de GIF (issue #45, §5) — par-dessus le composer qui l'a ouvert ──
+        val gifPickerOpen = comments.gifPickerOpen || passages.gifPickerOpen
+        AnimatedVisibility(
+            visible = gifPickerOpen,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            SheetScrim(
+                onDismiss = {
+                    commentsViewModel.closeGifPicker()
+                    passageViewModel.closeGifPicker()
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        AnimatedVisibility(
+            visible = gifPickerOpen,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            GifPickerSheet(
+                onPick = { gif ->
+                    // Le GIF va au composer qui a demandé le sélecteur — un seul à la fois.
+                    if (comments.gifPickerOpen) commentsViewModel.attachGif(gif)
+                    else passageViewModel.attachGif(gif)
+                },
+                onClose = {
+                    commentsViewModel.closeGifPicker()
+                    passageViewModel.closeGifPicker()
+                },
             )
         }
 
@@ -718,11 +788,12 @@ private fun ChapterBody(
     onOpenPrevious: () -> Unit,
     onOpenNext: () -> Unit,
     onWriteComment: () -> Unit,
-    onReplyComment: (rootId: Long, pseudo: String?, mention: Boolean) -> Unit,
+    onReplyComment: (rootId: Long, toUserId: Long?, toPseudo: String?, mention: Boolean) -> Unit,
     onEditComment: (comment: ChapterCommentDto, rootId: Long?) -> Unit,
     onDeleteComment: (comment: ChapterCommentDto, rootId: Long?) -> Unit,
     onLoadMoreComments: () -> Unit,
     onRetryComments: () -> Unit,
+    onOpenUser: (Long) -> Unit,
     highlightedBlock: Int,
     highlightAlpha: Float,
     onBlockOffset: (index: Int, y: Int) -> Unit,
@@ -865,6 +936,7 @@ private fun ChapterBody(
             onDelete = onDeleteComment,
             onLoadMore = onLoadMoreComments,
             onRetry = onRetryComments,
+            onOpenUser = onOpenUser,
             modifier = Modifier.padding(horizontal = buttonInset),
         )
 

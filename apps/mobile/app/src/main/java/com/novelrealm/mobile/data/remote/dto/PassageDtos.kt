@@ -60,6 +60,11 @@ data class PassageCommentDto(
     val spoiler: Boolean = false,
     val mine: Boolean = false,
     val createdAt: String? = null,
+    /** Qui est visé par les `@pseudo` du texte (issue #45, §2). */
+    val mentions: List<MentionDto> = emptyList(),
+    /** GIF joint (issue #45, §5) : `body` peut alors être vide. */
+    val gifUrl: String? = null,
+    val gifPreviewUrl: String? = null,
     val replies: List<PassageCommentDto> = emptyList(),
 )
 
@@ -78,6 +83,11 @@ data class CreatePassageCommentRequestDto(
     val spoiler: Boolean,
     /** Message auquel on répond, ou `null` pour ouvrir un fil. */
     val parentId: Long? = null,
+    /** Mentions résolues par l'autocomplétion (issue #45, §2). */
+    val mentionedUserIds: List<Long> = emptyList(),
+    /** GIF joint (issue #45, §5). */
+    val gifUrl: String? = null,
+    val gifPreviewUrl: String? = null,
 )
 
 /**

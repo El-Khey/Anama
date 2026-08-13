@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.FormatQuote
@@ -126,6 +127,13 @@ fun ProfileScreen(
                             title = "Mes citations",
                             subtitle = "Les passages que tu as gardés",
                             onClick = { onOpenSettings(SettingsRoutes.MY_QUOTES) },
+                        )
+                        SettingsDivider()
+                        SettingsRow(
+                            icon = Icons.AutoMirrored.Filled.Chat,
+                            title = "Mes commentaires",
+                            subtitle = "Tout ce que tu as écrit, au même endroit",
+                            onClick = { onOpenSettings(SettingsRoutes.MY_COMMENTS) },
                         )
                     }
 

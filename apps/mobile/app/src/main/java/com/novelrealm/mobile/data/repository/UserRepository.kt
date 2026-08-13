@@ -3,9 +3,13 @@ package com.novelrealm.mobile.data.repository
 import com.novelrealm.mobile.data.remote.ApiResult
 import com.novelrealm.mobile.data.remote.api.UserApi
 import com.novelrealm.mobile.data.remote.dto.ChangePasswordRequestDto
+import com.novelrealm.mobile.data.remote.dto.MyCommentDto
+import com.novelrealm.mobile.data.remote.dto.PageDto
+import com.novelrealm.mobile.data.remote.dto.PublicUserDto
 import com.novelrealm.mobile.data.remote.dto.UpdatePreferencesRequestDto
 import com.novelrealm.mobile.data.remote.dto.UpdateProfileRequestDto
 import com.novelrealm.mobile.data.remote.dto.UserDto
+import com.novelrealm.mobile.data.remote.dto.UserSearchDto
 import com.novelrealm.mobile.data.remote.dto.UserStatsDto
 import com.novelrealm.mobile.data.remote.safeApiCall
 import kotlinx.serialization.json.JsonObject
@@ -27,6 +31,18 @@ class UserRepository(private val userApi: UserApi) {
 
     suspend fun getMyStats(): ApiResult<UserStatsDto> =
         safeApiCall { userApi.getMyStats() }
+
+    /** Autocomplétion des mentions (issue #45, §2) — vide si la saisie est vide. */
+    suspend fun search(query: String): ApiResult<List<UserSearchDto>> =
+        safeApiCall { userApi.search(query) }
+
+    /** Profil PUBLIC d'un autre utilisateur (mention ou pseudo touché). */
+    suspend fun getPublicProfile(userId: Long): ApiResult<PublicUserDto> =
+        safeApiCall { userApi.getPublicProfile(userId) }
+
+    /** « Mes commentaires » (issue #45, §4) : flux unifié, paginé. */
+    suspend fun getMyComments(page: Int, size: Int = 20): ApiResult<PageDto<MyCommentDto>> =
+        safeApiCall { userApi.getMyComments(page, size) }
 
     suspend fun updateProfile(pseudo: String?, bio: String?): ApiResult<UserDto> =
         safeApiCall {

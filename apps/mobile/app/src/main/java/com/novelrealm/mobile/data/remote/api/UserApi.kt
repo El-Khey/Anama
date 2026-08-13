@@ -1,9 +1,13 @@
 package com.novelrealm.mobile.data.remote.api
 
 import com.novelrealm.mobile.data.remote.dto.ChangePasswordRequestDto
+import com.novelrealm.mobile.data.remote.dto.MyCommentDto
+import com.novelrealm.mobile.data.remote.dto.PageDto
+import com.novelrealm.mobile.data.remote.dto.PublicUserDto
 import com.novelrealm.mobile.data.remote.dto.UpdatePreferencesRequestDto
 import com.novelrealm.mobile.data.remote.dto.UpdateProfileRequestDto
 import com.novelrealm.mobile.data.remote.dto.UserDto
+import com.novelrealm.mobile.data.remote.dto.UserSearchDto
 import com.novelrealm.mobile.data.remote.dto.UserStatsDto
 import okhttp3.MultipartBody
 import retrofit2.http.Body
@@ -14,6 +18,8 @@ import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Part
+import retrofit2.http.Path
+import retrofit2.http.Query
 
 // Profil de l'utilisateur courant (`/me` = identifié par le JWT).
 //
@@ -27,6 +33,21 @@ interface UserApi {
 
     @GET("api/users/me/stats")
     suspend fun getMyStats(): UserStatsDto
+
+    /** Autocomplétion des mentions (issue #45, §2) : 8 max, jamais soi-même. */
+    @GET("api/users/search")
+    suspend fun search(@Query("q") query: String): List<UserSearchDto>
+
+    /** Profil PUBLIC d'un autre utilisateur — ouvert depuis une mention ou un pseudo. */
+    @GET("api/users/{id}")
+    suspend fun getPublicProfile(@Path("id") userId: Long): PublicUserDto
+
+    /** « Mes commentaires » (issue #45, §4) : flux unifié, les plus récents d'abord. */
+    @GET("api/users/me/comments")
+    suspend fun getMyComments(
+        @Query("page") page: Int = 0,
+        @Query("size") size: Int = 20,
+    ): PageDto<MyCommentDto>
 
     @PATCH("api/users/me")
     suspend fun updateProfile(@Body body: UpdateProfileRequestDto): UserDto

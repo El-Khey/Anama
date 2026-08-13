@@ -66,9 +66,22 @@ import coil.compose.AsyncImage
 import com.novelrealm.mobile.data.remote.dto.BlockActivityDto
 import com.novelrealm.mobile.data.remote.dto.EmojiTallyDto
 import com.novelrealm.mobile.data.remote.dto.PassageCommentDto
+import com.novelrealm.mobile.data.remote.dto.UserSearchDto
 import com.novelrealm.mobile.data.remote.resolveImageUrl
 import com.novelrealm.mobile.data.repository.PassageRepository
+import com.novelrealm.mobile.ui.components.CommentGif
+import com.novelrealm.mobile.ui.components.MentionSuggestionRow
+import com.novelrealm.mobile.ui.components.MentionText
 import com.novelrealm.mobile.ui.util.relativeTimeLabel
+
+// NB : `AttachedGifPreview` et `GifButton` viennent de ChapterComments.kt — même
+// paquet, pas d'import : les deux composers doivent rester identiques au pixel.
+
+/**
+ * Réponses affichées d'emblée dans un fil de passage — même règle que la fin de
+ * chapitre (issue #45, §6) : au-delà, « Voir les N autres réponses ».
+ */
+private const val VisiblePassageReplies = 2
 
 /**
  * Marque d'activité d'un passage (#41, §4) — une **note de bas de ligne**, pas une
@@ -179,6 +192,10 @@ fun PassageThreadSheet(
     onToggleSpoiler: () -> Unit,
     onSend: () -> Unit,
     onClose: () -> Unit,
+    onOpenUser: (Long) -> Unit,
+    onPickMention: (UserSearchDto) -> Unit,
+    onOpenGifPicker: () -> Unit,
+    onRemoveGif: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -291,22 +308,12 @@ fun PassageThreadSheet(
                         )
 
                         else -> state.thread.forEach { root ->
-                            PassageCommentRow(
-                                comment = root,
-                                onDelete = { onDelete(root) },
-                                onReply = { onReply(root) },
+                            PassageThread(
+                                root = root,
+                                onDelete = onDelete,
+                                onReply = onReply,
+                                onOpenUser = onOpenUser,
                             )
-                            // Les réponses sont décalées d'un seul cran, jamais deux :
-                            // au-delà, la colonne de texte devient inutilisable sur un
-                            // téléphone. Le serveur garantit cette profondeur.
-                            root.replies.forEach { reply ->
-                                PassageCommentRow(
-                                    comment = reply,
-                                    onDelete = { onDelete(reply) },
-                                    onReply = { onReply(reply) },
-                                    modifier = Modifier.padding(start = 22.dp),
-                                )
-                            }
                         }
                     }
                 }
@@ -342,9 +349,59 @@ fun PassageThreadSheet(
                     onToggleSpoiler = onToggleSpoiler,
                     onSend = onSend,
                     onCancelReply = onCancelReply,
+                    onPickMention = onPickMention,
+                    onOpenGifPicker = onOpenGifPicker,
+                    onRemoveGif = onRemoveGif,
                 )
             }
         }
+    }
+}
+
+/**
+ * Un fil complet : la racine, puis ses réponses décalées d'UN cran — jamais deux,
+ * le serveur garantit la profondeur. Au-delà de [VisiblePassageReplies], les
+ * réponses se replient derrière « Voir les N autres réponses » (issue #45, §6),
+ * sauf s'il n'y en aurait qu'une à cacher : un bouton coûterait plus cher.
+ */
+@Composable
+private fun PassageThread(
+    root: PassageCommentDto,
+    onDelete: (PassageCommentDto) -> Unit,
+    onReply: (PassageCommentDto) -> Unit,
+    onOpenUser: (Long) -> Unit,
+) {
+    var expanded by remember(root.id) { mutableStateOf(false) }
+    val collapsible = root.replies.size > VisiblePassageReplies + 1 && !expanded
+    val visibleReplies = if (collapsible) root.replies.take(VisiblePassageReplies) else root.replies
+
+    PassageCommentRow(
+        comment = root,
+        onDelete = { onDelete(root) },
+        onReply = { onReply(root) },
+        onOpenUser = onOpenUser,
+    )
+    visibleReplies.forEach { reply ->
+        PassageCommentRow(
+            comment = reply,
+            onDelete = { onDelete(reply) },
+            onReply = { onReply(reply) },
+            onOpenUser = onOpenUser,
+            modifier = Modifier.padding(start = 22.dp),
+        )
+    }
+    if (collapsible) {
+        Text(
+            text = "Voir les ${root.replies.size - VisiblePassageReplies} autres réponses",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .padding(start = 22.dp, bottom = 8.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { expanded = true }
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+        )
     }
 }
 
@@ -512,6 +569,7 @@ private fun PassageCommentRow(
     comment: PassageCommentDto,
     onDelete: () -> Unit,
     onReply: () -> Unit,
+    onOpenUser: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Un spoiler est MASQUÉ, pas flouté : `Modifier.blur` ne fait rien avant Android 12,
@@ -545,8 +603,13 @@ private fun PassageCommentRow(
             ),
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            val userId = comment.userId
             Row(verticalAlignment = Alignment.CenterVertically) {
-                PassageAvatar(url = comment.avatarUrl, pseudo = comment.pseudo)
+                PassageAvatar(
+                    url = comment.avatarUrl,
+                    pseudo = comment.pseudo,
+                    onClick = userId?.let { { onOpenUser(it) } },
+                )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = comment.pseudo ?: "Lecteur",
@@ -556,6 +619,13 @@ private fun PassageCommentRow(
                     else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = if (userId != null) {
+                        Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .clickable { onOpenUser(userId) }
+                    } else {
+                        Modifier
+                    },
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
@@ -581,12 +651,24 @@ private fun PassageCommentRow(
 
             Spacer(Modifier.height(7.dp))
             if (revealed) {
-                Text(
-                    text = comment.body,
-                    style = MaterialTheme.typography.bodyMedium,
-                    lineHeight = 20.sp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+                if (comment.body.isNotBlank()) {
+                    MentionText(
+                        body = comment.body,
+                        mentions = comment.mentions,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp),
+                        onMentionClick = onOpenUser,
+                    )
+                }
+                comment.gifUrl?.let { gif ->
+                    if (comment.body.isNotBlank()) Spacer(Modifier.height(7.dp))
+                    CommentGif(
+                        gifUrl = gif,
+                        previewUrl = comment.gifPreviewUrl,
+                        width = 0,
+                        height = 0,
+                    )
+                }
             } else {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -651,14 +733,19 @@ private fun ComposerChip(label: String, active: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun PassageAvatar(url: String?, pseudo: String?) {
+private fun PassageAvatar(url: String?, pseudo: String?, onClick: (() -> Unit)? = null) {
+    val clickModifier = if (onClick != null) {
+        Modifier.clip(CircleShape).clickable(onClick = onClick)
+    } else {
+        Modifier
+    }
     val resolved = resolveImageUrl(url)
     if (resolved != null) {
         AsyncImage(
             model = resolved,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.size(22.dp).clip(CircleShape),
+            modifier = Modifier.size(22.dp).clip(CircleShape).then(clickModifier),
         )
     } else {
         Box(
@@ -666,7 +753,8 @@ private fun PassageAvatar(url: String?, pseudo: String?) {
             modifier = Modifier
                 .size(22.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)),
+                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+                .then(clickModifier),
         ) {
             Text(
                 text = pseudo.orEmpty().take(1).uppercase().ifBlank { "?" },
@@ -691,8 +779,26 @@ private fun PassageComposer(
     onToggleSpoiler: () -> Unit,
     onSend: () -> Unit,
     onCancelReply: () -> Unit,
+    onPickMention: (UserSearchDto) -> Unit,
+    onOpenGifPicker: () -> Unit,
+    onRemoveGif: () -> Unit,
 ) {
     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+        // Le GIF joint, au-dessus du champ — là où il apparaîtra dans le message.
+        state.attachedGif?.let { gif ->
+            AttachedGifPreview(
+                previewUrl = gif.previewUrl.ifBlank { gif.url },
+                onRemove = onRemoveGif,
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+
+        // Suggestions du `@…` en cours de frappe (issue #45, §2).
+        MentionSuggestionRow(
+            suggestions = state.mentionSuggestions,
+            onPick = onPickMention,
+        )
+
         // À qui l'on répond, juste au-dessus du champ. Sans ce rappel, on tape sa
         // réponse sans plus savoir à quel message elle s'accroche — et une fois
         // publiée, il est trop tard pour s'en apercevoir.
@@ -751,6 +857,11 @@ private fun PassageComposer(
             }
         }
         Row(verticalAlignment = Alignment.Bottom) {
+            // Un GIF ne se joint qu'une fois : le bouton disparaît dès qu'un est là.
+            if (state.gifAvailable && state.attachedGif == null) {
+                GifButton(onClick = onOpenGifPicker)
+                Spacer(Modifier.width(8.dp))
+            }
             Surface(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f),
                 shape = RoundedCornerShape(23.dp),

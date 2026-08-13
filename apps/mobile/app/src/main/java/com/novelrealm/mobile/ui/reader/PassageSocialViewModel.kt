@@ -4,10 +4,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.novelrealm.mobile.data.remote.ApiResult
 import com.novelrealm.mobile.data.remote.dto.BlockActivityDto
+import com.novelrealm.mobile.data.remote.dto.GifDto
 import com.novelrealm.mobile.data.remote.dto.PassageCommentDto
+import com.novelrealm.mobile.data.remote.dto.UserSearchDto
 import com.novelrealm.mobile.data.remote.userMessage
 import com.novelrealm.mobile.data.repository.PassageRepository
 import com.novelrealm.mobile.di.ServiceLocator
+import com.novelrealm.mobile.ui.components.activeMentionQuery
+import com.novelrealm.mobile.ui.components.applyMention
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,9 +41,16 @@ data class PassageSocialUiState(
     val celebration: String? = null,
     /** Erreur d'une action ponctuelle — n'efface jamais ce qui est déjà affiché. */
     val error: String? = null,
+    /** Suggestions pour le `@…` en cours de frappe (issue #45, §2). */
+    val mentionSuggestions: List<UserSearchDto> = emptyList(),
+    /** Le serveur propose-t-il les GIF ? (bouton masqué sinon — issue #45, §5). */
+    val gifAvailable: Boolean = false,
+    val gifPickerOpen: Boolean = false,
+    /** GIF joint au brouillon (issue #45, §5) — un message peut être un GIF seul. */
+    val attachedGif: GifDto? = null,
 ) {
     val canSend: Boolean
-        get() = !isSending && draft.isNotBlank() &&
+        get() = !isSending && (draft.isNotBlank() || attachedGif != null) &&
             draft.length <= PassageRepository.MAX_BODY_LENGTH
 }
 
@@ -57,12 +70,22 @@ data class PassageSocialUiState(
 class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
 
     private val passageRepo = ServiceLocator.passageRepository
+    private val userRepo = ServiceLocator.userRepository
+    private val gifRepo = ServiceLocator.gifRepository
 
     private val _state = MutableStateFlow(PassageSocialUiState())
     val state: StateFlow<PassageSocialUiState> = _state.asStateFlow()
 
+    /** Mentions choisies : id → pseudo inséré. Voir `ChapterCommentsViewModel`. */
+    private val pickedMentions = mutableMapOf<Long, String>()
+    private var mentionSearchJob: Job? = null
+
     init {
         if (chapterId > 0) loadActivity()
+        viewModelScope.launch {
+            val available = gifRepo.isAvailable()
+            _state.update { it.copy(gifAvailable = available) }
+        }
     }
 
     /**
@@ -152,14 +175,21 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
         }
     }
 
-    fun closeThread() = _state.update {
-        it.copy(
-            threadBlock = null,
-            thread = emptyList(),
-            draft = "",
-            spoiler = false,
-            replyTo = null,
-        )
+    fun closeThread() {
+        pickedMentions.clear()
+        mentionSearchJob?.cancel()
+        _state.update {
+            it.copy(
+                threadBlock = null,
+                thread = emptyList(),
+                draft = "",
+                spoiler = false,
+                replyTo = null,
+                mentionSuggestions = emptyList(),
+                gifPickerOpen = false,
+                attachedGif = null,
+            )
+        }
     }
 
     fun celebrationShown() = _state.update { it.copy(celebration = null) }
@@ -169,41 +199,111 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
     /**
      * Vise un message. On peut viser une réponse : le serveur re-rattachera au fil
      * racine plutôt que de refuser, parce que du point de vue du lecteur le geste est
-     * le même.
+     * le même. Viser une RÉPONSE insère la mention de son auteur : c'est elle qui
+     * rend le rattachement lisible (issue #45, §6) et qui le notifie (§3).
      */
-    fun startReply(comment: PassageCommentDto) =
-        _state.update { it.copy(replyTo = comment, error = null) }
+    fun startReply(comment: PassageCommentDto) {
+        _state.update { current ->
+            var draft = current.draft
+            // Mention automatique quand on répond à une réponse : l'auteur du fil est
+            // déjà notifié, celui de la réponse ne le serait pas sans elle.
+            if (comment.mine.not() && comment.userId != null && !comment.pseudo.isNullOrBlank() &&
+                draft.isEmpty()
+            ) {
+                pickedMentions[comment.userId] = comment.pseudo
+                draft = "@${comment.pseudo} "
+            }
+            current.copy(replyTo = comment, draft = draft, error = null)
+        }
+    }
 
     fun cancelReply() = _state.update { it.copy(replyTo = null) }
 
     // ── Rédaction ─────────────────────────────────────────────────────────────
 
-    fun setDraft(draft: String) = _state.update { it.copy(draft = draft) }
+    fun setDraft(draft: String) {
+        _state.update { it.copy(draft = draft) }
+        refreshMentionSuggestions(draft)
+    }
 
     fun toggleSpoiler() = _state.update { it.copy(spoiler = !it.spoiler) }
+
+    // ── Mentions (issue #45, §2) ──────────────────────────────────────────────
+
+    fun pickMention(user: UserSearchDto) {
+        pickedMentions[user.id] = user.pseudo
+        _state.update {
+            it.copy(
+                draft = applyMention(it.draft, user.pseudo),
+                mentionSuggestions = emptyList(),
+            )
+        }
+    }
+
+    private fun refreshMentionSuggestions(draft: String) {
+        mentionSearchJob?.cancel()
+        val query = activeMentionQuery(draft)
+        if (query.isNullOrBlank()) {
+            _state.update { it.copy(mentionSuggestions = emptyList()) }
+            return
+        }
+        mentionSearchJob = viewModelScope.launch {
+            delay(250)
+            when (val result = userRepo.search(query)) {
+                is ApiResult.Success ->
+                    _state.update { it.copy(mentionSuggestions = result.data) }
+                is ApiResult.Error ->
+                    _state.update { it.copy(mentionSuggestions = emptyList()) }
+            }
+        }
+    }
+
+    // ── GIF (issue #45, §5) ───────────────────────────────────────────────────
+
+    fun openGifPicker() = _state.update { it.copy(gifPickerOpen = true) }
+
+    fun closeGifPicker() = _state.update { it.copy(gifPickerOpen = false) }
+
+    fun attachGif(gif: GifDto) =
+        _state.update { it.copy(attachedGif = gif, gifPickerOpen = false) }
+
+    fun removeGif() = _state.update { it.copy(attachedGif = null) }
 
     fun send() {
         val current = _state.value
         val blockIndex = current.threadBlock ?: return
         if (!current.canSend) return
 
+        val body = current.draft.trim()
+        // Voir ChapterCommentsViewModel : seules les mentions encore dans le texte partent.
+        val mentionedUserIds = pickedMentions
+            .filterValues { pseudo -> body.contains("@$pseudo") }
+            .keys.toList()
+
         _state.update { it.copy(isSending = true, error = null) }
         viewModelScope.launch {
             val result = passageRepo.comment(
                 chapterId = chapterId,
                 blockIndex = blockIndex,
-                body = current.draft.trim(),
+                body = body,
                 spoiler = current.spoiler,
                 parentId = current.replyTo?.id,
+                mentionedUserIds = mentionedUserIds,
+                gifUrl = current.attachedGif?.url,
+                gifPreviewUrl = current.attachedGif?.previewUrl,
             )
             when (result) {
                 is ApiResult.Success -> {
+                    pickedMentions.clear()
                     _state.update {
                         it.copy(
                             isSending = false,
                             draft = "",
                             spoiler = false,
                             replyTo = null,
+                            mentionSuggestions = emptyList(),
+                            attachedGif = null,
+                            gifPickerOpen = false,
                             activity = it.activity.bump(blockIndex, by = 1),
                         )
                     }

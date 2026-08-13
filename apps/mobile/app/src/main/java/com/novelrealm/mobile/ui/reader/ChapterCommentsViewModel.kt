@@ -4,8 +4,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.novelrealm.mobile.data.remote.ApiResult
 import com.novelrealm.mobile.data.remote.dto.ChapterCommentDto
+import com.novelrealm.mobile.data.remote.dto.GifDto
+import com.novelrealm.mobile.data.remote.dto.UserSearchDto
 import com.novelrealm.mobile.data.remote.userMessage
 import com.novelrealm.mobile.di.ServiceLocator
+import com.novelrealm.mobile.ui.components.activeMentionQuery
+import com.novelrealm.mobile.ui.components.applyMention
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,8 +51,18 @@ data class ChapterCommentsUiState(
     val isSending: Boolean = false,
     /** Échec d'une action ponctuelle (envoi, suppression) — n'efface pas la liste. */
     val actionError: String? = null,
+    /** Suggestions pour le `@…` en cours de frappe (issue #45, §2). */
+    val mentionSuggestions: List<UserSearchDto> = emptyList(),
+    /** Le serveur propose-t-il les GIF ? (bouton masqué sinon — issue #45, §5). */
+    val gifAvailable: Boolean = false,
+    val gifPickerOpen: Boolean = false,
+    /** GIF joint au brouillon. Jamais en mode modification : un GIF ne s'édite pas. */
+    val attachedGif: GifDto? = null,
 ) {
-    val canSend: Boolean get() = draft.isNotBlank() && !isSending
+    // Un GIF seul suffit — sauf en modification, où seul le texte compte.
+    val canSend: Boolean
+        get() = !isSending &&
+            (draft.isNotBlank() || (attachedGif != null && target !is ComposerTarget.Edit))
 }
 
 /**
@@ -61,16 +77,30 @@ data class ChapterCommentsUiState(
 class ChapterCommentsViewModel(private val chapterId: Long) : ViewModel() {
 
     private val commentRepo = ServiceLocator.commentRepository
+    private val userRepo = ServiceLocator.userRepository
+    private val gifRepo = ServiceLocator.gifRepository
 
     private val _state = MutableStateFlow(ChapterCommentsUiState())
     val state: StateFlow<ChapterCommentsUiState> = _state.asStateFlow()
 
     private var nextPage = 0
 
+    /**
+     * Mentions choisies dans l'autocomplétion : id → pseudo tel qu'inséré. À
+     * l'envoi, seules celles dont le « @pseudo » figure ENCORE dans le texte
+     * partent — effacer la mention du texte doit suffire à la retirer.
+     */
+    private val pickedMentions = mutableMapOf<Long, String>()
+    private var mentionSearchJob: Job? = null
+
     init {
         // Le lecteur instancie ce ViewModel avant même de savoir quel chapitre il
         // affiche ; l'id vaut alors 0 et il n'y a rien à demander.
         if (chapterId > 0) load() else _state.update { it.copy(isLoading = false) }
+        viewModelScope.launch {
+            val available = gifRepo.isAvailable()
+            _state.update { it.copy(gifAvailable = available) }
+        }
     }
 
     fun load() {
@@ -126,69 +156,139 @@ class ChapterCommentsViewModel(private val chapterId: Long) : ViewModel() {
         }
     }
 
-    fun setDraft(draft: String) = _state.update { it.copy(draft = draft, actionError = null) }
+    fun setDraft(draft: String) {
+        _state.update { it.copy(draft = draft, actionError = null) }
+        refreshMentionSuggestions(draft)
+    }
 
     /** Ouvre la rédaction sur un nouveau fil. */
     fun startNewThread() {
+        pickedMentions.clear()
         _state.update {
             it.copy(
                 composerOpen = true,
                 target = ComposerTarget.NewThread,
                 draft = "",
                 actionError = null,
+                mentionSuggestions = emptyList(),
+                attachedGif = null,
             )
         }
     }
 
     /**
      * Prépare une réponse. Répondre à une réponse reste dans le même fil : le pseudo
-     * visé est simplement préfixé au message, comme le prévoit #41.
+     * visé est préfixé au message en VRAIE mention (issue #45, §2) — la personne
+     * visée sera donc notifiée, en plus de l'auteur du fil.
      */
-    fun startReply(rootId: Long, toPseudo: String?, mention: Boolean) {
+    fun startReply(rootId: Long, toUserId: Long?, toPseudo: String?, mention: Boolean) {
+        pickedMentions.clear()
+        val prefix = if (mention && !toPseudo.isNullOrBlank()) "@$toPseudo " else ""
+        if (prefix.isNotEmpty() && toUserId != null) {
+            pickedMentions[toUserId] = toPseudo!!
+        }
         _state.update {
             it.copy(
                 composerOpen = true,
                 target = ComposerTarget.Reply(rootId, toPseudo),
-                draft = if (mention && !toPseudo.isNullOrBlank()) "@$toPseudo " else "",
+                draft = prefix,
                 actionError = null,
+                mentionSuggestions = emptyList(),
+                attachedGif = null,
             )
         }
     }
 
     fun startEdit(comment: ChapterCommentDto, rootId: Long?) {
+        pickedMentions.clear()
         _state.update {
             it.copy(
                 composerOpen = true,
                 target = ComposerTarget.Edit(comment, rootId),
                 draft = comment.body.orEmpty(),
                 actionError = null,
+                mentionSuggestions = emptyList(),
+                attachedGif = null,
             )
         }
     }
 
     fun closeComposer() {
+        pickedMentions.clear()
+        mentionSearchJob?.cancel()
         _state.update {
             it.copy(
                 composerOpen = false,
                 target = ComposerTarget.NewThread,
                 draft = "",
                 actionError = null,
+                mentionSuggestions = emptyList(),
+                gifPickerOpen = false,
+                attachedGif = null,
             )
         }
     }
 
+    // ── Mentions (issue #45, §2) ──────────────────────────────────────────────
+
+    /** Insère le pseudo choisi à la place du `@…` en cours, et retient QUI il désigne. */
+    fun pickMention(user: UserSearchDto) {
+        pickedMentions[user.id] = user.pseudo
+        _state.update {
+            it.copy(
+                draft = applyMention(it.draft, user.pseudo),
+                mentionSuggestions = emptyList(),
+            )
+        }
+    }
+
+    /**
+     * Recherche débouncée sur le jeton `@…` en fin de brouillon. Une frappe annule
+     * la recherche précédente : seule la dernière saisie compte, et le serveur ne
+     * reçoit pas une requête par lettre.
+     */
+    private fun refreshMentionSuggestions(draft: String) {
+        mentionSearchJob?.cancel()
+        val query = activeMentionQuery(draft)
+        if (query.isNullOrBlank()) {
+            _state.update { it.copy(mentionSuggestions = emptyList()) }
+            return
+        }
+        mentionSearchJob = viewModelScope.launch {
+            delay(250)
+            when (val result = userRepo.search(query)) {
+                is ApiResult.Success ->
+                    _state.update { it.copy(mentionSuggestions = result.data) }
+                is ApiResult.Error ->
+                    _state.update { it.copy(mentionSuggestions = emptyList()) }
+            }
+        }
+    }
+
+    // ── GIF (issue #45, §5) ───────────────────────────────────────────────────
+
+    fun openGifPicker() = _state.update { it.copy(gifPickerOpen = true) }
+
+    fun closeGifPicker() = _state.update { it.copy(gifPickerOpen = false) }
+
+    fun attachGif(gif: GifDto) =
+        _state.update { it.copy(attachedGif = gif, gifPickerOpen = false) }
+
+    fun removeGif() = _state.update { it.copy(attachedGif = null) }
+
     fun send() {
         val current = _state.value
+        if (!current.canSend) return
         val body = current.draft.trim()
-        if (body.isEmpty() || current.isSending) return
         _state.update { it.copy(isSending = true, actionError = null) }
 
         viewModelScope.launch {
             when (val target = current.target) {
                 is ComposerTarget.Edit -> applyEdit(target, body)
                 is ComposerTarget.Reply ->
-                    applyCreate(body, parentId = target.rootId, rootId = target.rootId)
-                ComposerTarget.NewThread -> applyCreate(body, parentId = null, rootId = null)
+                    applyCreate(current, body, parentId = target.rootId, rootId = target.rootId)
+                ComposerTarget.NewThread ->
+                    applyCreate(current, body, parentId = null, rootId = null)
             }
         }
     }
@@ -211,31 +311,57 @@ class ChapterCommentsViewModel(private val chapterId: Long) : ViewModel() {
 
     // ── Interne ───────────────────────────────────────────────────────────────
 
-    private suspend fun applyCreate(body: String, parentId: Long?, rootId: Long?) {
-        when (val result = commentRepo.create(chapterId, body, parentId)) {
-            is ApiResult.Success -> _state.update { state ->
-                val created = result.data
-                val threads = if (rootId == null) {
-                    // Un nouveau fil se pose en tête : c'est là qu'on le cherche des yeux
-                    // juste après l'avoir écrit.
-                    listOf(created) + state.threads
-                } else {
-                    state.threads.map { thread ->
-                        if (thread.id == rootId) {
-                            thread.copy(replies = thread.replies + created)
-                        } else {
-                            thread
+    private suspend fun applyCreate(
+        snapshot: ChapterCommentsUiState,
+        body: String,
+        parentId: Long?,
+        rootId: Long?,
+    ) {
+        // Seules les mentions encore PRÉSENTES dans le texte partent : en effacer
+        // une du brouillon suffit à la retirer. Le serveur refait la même
+        // vérification de son côté.
+        val mentionedUserIds = pickedMentions
+            .filterValues { pseudo -> body.contains("@$pseudo") }
+            .keys.toList()
+
+        val result = commentRepo.create(
+            chapterId = chapterId,
+            body = body,
+            parentId = parentId,
+            mentionedUserIds = mentionedUserIds,
+            gifUrl = snapshot.attachedGif?.url,
+            gifPreviewUrl = snapshot.attachedGif?.previewUrl,
+        )
+        when (result) {
+            is ApiResult.Success -> {
+                pickedMentions.clear()
+                _state.update { state ->
+                    val created = result.data
+                    val threads = if (rootId == null) {
+                        // Un nouveau fil se pose en tête : c'est là qu'on le cherche des
+                        // yeux juste après l'avoir écrit.
+                        listOf(created) + state.threads
+                    } else {
+                        state.threads.map { thread ->
+                            if (thread.id == rootId) {
+                                thread.copy(replies = thread.replies + created)
+                            } else {
+                                thread
+                            }
                         }
                     }
+                    state.copy(
+                        isSending = false,
+                        composerOpen = false,
+                        draft = "",
+                        target = ComposerTarget.NewThread,
+                        threads = threads,
+                        total = state.total + 1,
+                        mentionSuggestions = emptyList(),
+                        attachedGif = null,
+                        gifPickerOpen = false,
+                    )
                 }
-                state.copy(
-                    isSending = false,
-                    composerOpen = false,
-                    draft = "",
-                    target = ComposerTarget.NewThread,
-                    threads = threads,
-                    total = state.total + 1,
-                )
             }
             is ApiResult.Error -> _state.update {
                 // Le panneau reste ouvert : le texte n'est pas perdu, on peut réessayer.

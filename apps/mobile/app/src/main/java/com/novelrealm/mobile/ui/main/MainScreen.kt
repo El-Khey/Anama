@@ -29,6 +29,7 @@ fun MainScreen(
     onNovelClick: (Long) -> Unit,
     onOpenReader: (novelId: Long, chapterId: Long) -> Unit,
     onOpenSettings: (route: String) -> Unit,
+    onOpenNotifications: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
@@ -77,7 +78,10 @@ fun MainScreen(
             modifier = Modifier.padding(innerPadding),
         ) {
             composable(TopLevelDestination.Library.route) {
-                LibraryScreen(onNovelClick = onNovelClick)
+                LibraryScreen(
+                    onNovelClick = onNovelClick,
+                    onOpenNotifications = onOpenNotifications,
+                )
             }
             composable(TopLevelDestination.Explore.route) {
                 ExploreScreen(onNovelClick = onNovelClick)
