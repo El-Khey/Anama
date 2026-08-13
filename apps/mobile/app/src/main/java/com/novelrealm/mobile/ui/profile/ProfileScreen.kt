@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.FormatQuote
@@ -71,6 +72,12 @@ import com.novelrealm.mobile.ui.theme.palette
 fun ProfileScreen(
     onLogout: () -> Unit,
     onOpenSettings: (route: String) -> Unit,
+    /**
+     * Notifications non lues, tenu par la coquille (MainScreen) : la même valeur
+     * pastille l'onglet Profil en bas et la ligne « Activité » ci-dessous.
+     * Arriver ici en voyant une pastille sans savoir où aller serait une impasse.
+     */
+    unreadNotifications: Long = 0,
     modifier: Modifier = Modifier,
     viewModel: ProfileViewModel = viewModel(),
 ) {
@@ -126,6 +133,14 @@ fun ProfileScreen(
                             title = "Mes citations",
                             subtitle = "Les passages que tu as gardés",
                             onClick = { onOpenSettings(SettingsRoutes.MY_QUOTES) },
+                        )
+                        SettingsDivider()
+                        SettingsRow(
+                            icon = Icons.AutoMirrored.Filled.Chat,
+                            title = "Activité",
+                            subtitle = "Ce qu'on t'écrit, et tout ce que tu as écrit",
+                            badge = unreadNotifications,
+                            onClick = { onOpenSettings(SettingsRoutes.ACTIVITY) },
                         )
                     }
 

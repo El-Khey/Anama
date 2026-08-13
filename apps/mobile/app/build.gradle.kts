@@ -65,8 +65,8 @@ android {
         // d'installer par-dessus un versionCode égal ou supérieur — et sans mise à jour
         // possible, la seule issue devient la désinstallation, qui, elle, efface les
         // données locales. versionName ne sert qu'à l'affichage.
-        versionCode = 2
-        versionName = "1.0"
+        versionCode = 3
+        versionName = "1.1"       // Correctif #2 : mentions, notifications, GIF, session persistante
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -177,6 +177,9 @@ dependencies {
 
     // ── #35 : chargement d'images (couvertures) ──
     implementation(libs.coil.compose)
+    // ── #45, §5 : GIF animés dans les commentaires. Coil affiche un GIF figé
+    // sans ce décodeur ; l'ImageLoader qui l'utilise est construit dans GifImage.kt.
+    implementation(libs.coil.gif)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

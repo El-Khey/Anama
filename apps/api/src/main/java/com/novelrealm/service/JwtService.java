@@ -2,6 +2,7 @@ package com.novelrealm.service;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -51,5 +52,15 @@ public class JwtService {
      */
     public String extractEmail(String token) {
         return decoder.decode(token).getSubject();
+    }
+
+    /**
+     * Valide le token et le renvoie <b>entier</b> — sujet ET horodatages. C'est ce
+     * dont le filtre a besoin pour le renouvellement glissant : savoir si le token
+     * a dépassé la moitié de sa vie demande {@code iat} et {@code exp}, pas
+     * seulement l'email. Mêmes exceptions que {@link #extractEmail}.
+     */
+    public Jwt decode(String token) {
+        return decoder.decode(token);
     }
 }

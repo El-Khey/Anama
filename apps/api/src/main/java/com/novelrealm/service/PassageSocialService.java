@@ -17,13 +17,16 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.novelrealm.dto.BlockActivityResponse;
 import com.novelrealm.dto.ChapterActivityResponse;
+import com.novelrealm.dto.CreatePassageCommentRequest;
 import com.novelrealm.dto.EmojiTallyResponse;
+import com.novelrealm.dto.MentionResponse;
 import com.novelrealm.dto.PassageCommentResponse;
 import com.novelrealm.dto.PassageReactionResponse;
 import com.novelrealm.exception.CommentRateLimitedException;
 import com.novelrealm.exception.InvalidPassageException;
 import com.novelrealm.exception.PassageAnnotationNotFoundException;
 import com.novelrealm.model.Chapter;
+import com.novelrealm.model.CommentMention;
 import com.novelrealm.model.PassageAnnotation;
 import com.novelrealm.model.User;
 import com.novelrealm.repository.PassageAnnotationRepository;
@@ -83,14 +86,20 @@ public class PassageSocialService {
     private final PassageAnnotationRepository annotationRepository;
     private final ChapterService chapterService;
     private final UserService userService;
+    private final MentionService mentionService;
+    private final NotificationService notificationService;
 
     public PassageSocialService(
             PassageAnnotationRepository annotationRepository,
             ChapterService chapterService,
-            UserService userService) {
+            UserService userService,
+            MentionService mentionService,
+            NotificationService notificationService) {
         this.annotationRepository = annotationRepository;
         this.chapterService = chapterService;
         this.userService = userService;
+        this.mentionService = mentionService;
+        this.notificationService = notificationService;
     }
 
     // ── Lecture ───────────────────────────────────────────────────────────────
@@ -168,33 +177,43 @@ public class PassageSocialService {
                 .filter(row -> !row.isRoot())
                 .collect(Collectors.groupingBy(row -> row.getParent().getId()));
 
+        // Les mentions de tout le fil en une requête (issue #45, §2).
+        Map<Long, List<CommentMention>> mentionsBySource = mentionService.forSources(
+                CommentMention.SourceKind.PASSAGE_COMMENT,
+                rows.stream().map(PassageAnnotation::getId).toList());
+
         return rows.stream()
                 .filter(PassageAnnotation::isRoot)
                 .map(root -> toResponse(
                         root,
                         user.getId(),
-                        repliesByRoot.getOrDefault(root.getId(), List.of())))
+                        repliesByRoot.getOrDefault(root.getId(), List.of()),
+                        mentionsBySource))
                 .toList();
     }
 
     // ── Écriture ──────────────────────────────────────────────────────────────
 
-    /** Accroche un message au bloc désigné. */
+    /**
+     * Accroche un message au bloc désigné.
+     *
+     * <p>Depuis l'issue #45 : mentions (§2), GIF joint (§5, le corps peut alors
+     * être vide), et notifications (§3) — l'auteur du fil est prévenu d'une
+     * réponse, les mentionnés d'une mention, jamais deux fois la même personne.
+     */
     @Transactional
     public PassageCommentResponse comment(
-            String email,
-            Long chapterId,
-            int blockIndex,
-            String body,
-            boolean spoiler,
-            Long parentId) {
+            String email, Long chapterId, CreatePassageCommentRequest request) {
+        int blockIndex = request.blockIndex();
         User user = userService.findByEmail(email);
         Chapter chapter = chapterService.findById(chapterId);
         List<String> blocks = requireBlock(chapter, blockIndex);
-        PassageAnnotation parent = resolveParent(chapterId, parentId);
+        PassageAnnotation parent = resolveParent(chapterId, request.parentId());
 
-        String cleaned = body == null ? "" : body.strip();
-        if (cleaned.isEmpty()) {
+        String cleaned = request.body() == null ? "" : request.body().strip();
+        String gifUrl = GifService.requireGifUrl(request.gifUrl());
+        String gifPreviewUrl = GifService.requireGifUrl(request.gifPreviewUrl());
+        if (cleaned.isEmpty() && gifUrl == null) {
             throw new InvalidPassageException("Le message ne peut pas être vide");
         }
         if (cleaned.length() > PassageAnnotation.MAX_BODY_LENGTH) {
@@ -204,7 +223,7 @@ public class PassageSocialService {
         }
         requireNotFlooding(user);
 
-        PassageAnnotation saved = annotationRepository.save(PassageAnnotation.comment(
+        PassageAnnotation annotation = PassageAnnotation.comment(
                 chapter,
                 user,
                 // Une réponse hérite de l'ancre de son fil : elle appartient au même
@@ -214,9 +233,36 @@ public class PassageSocialService {
                         ? parent.getTextHash()
                         : ChapterBlocks.hash(blocks.get(blockIndex)),
                 cleaned,
-                spoiler,
-                parent));
-        return toResponse(saved, user.getId(), List.of());
+                request.isSpoiler(),
+                parent);
+        if (gifUrl != null) {
+            annotation.attachGif(gifUrl, gifPreviewUrl != null ? gifPreviewUrl : gifUrl);
+        }
+        PassageAnnotation saved = annotationRepository.save(annotation);
+
+        List<CommentMention> mentions = mentionService.attach(
+                CommentMention.SourceKind.PASSAGE_COMMENT,
+                saved.getId(), user, request.mentionedUserIds(), cleaned);
+
+        // L'index transmis est celui que le lecteur affiche EN CE MOMENT : c'est
+        // le meilleur lien profond possible pour la notification.
+        User threadAuthor = parent != null ? parent.getUser() : null;
+        if (threadAuthor != null) {
+            notificationService.notifyReply(
+                    threadAuthor, user, chapter,
+                    CommentMention.SourceKind.PASSAGE_COMMENT, saved.getId(), blockIndex, cleaned);
+        }
+        for (CommentMention mention : mentions) {
+            User mentioned = mention.getMentioned();
+            if (threadAuthor != null && mentioned.getId().equals(threadAuthor.getId())) {
+                continue; // déjà prévenu par la réponse
+            }
+            notificationService.notifyMention(
+                    mentioned, user, chapter,
+                    CommentMention.SourceKind.PASSAGE_COMMENT, saved.getId(), blockIndex, cleaned);
+        }
+
+        return toResponse(saved, user.getId(), List.of(), Map.of(saved.getId(), mentions));
     }
 
     /**
@@ -293,6 +339,19 @@ public class PassageSocialService {
                 .filter(a -> a.getKind() == PassageAnnotation.Kind.COMMENT
                         || a.getKind() == PassageAnnotation.Kind.REACTION)
                 .orElseThrow(() -> new PassageAnnotationNotFoundException(annotationId));
+
+        // Les lignes de passage disparaissent VRAIMENT (pas de pierre tombale) : il
+        // faut emporter leurs mentions, y compris celles des réponses que la base
+        // supprime en cascade — sinon elles resteraient orphelines pour toujours.
+        if (annotation.getKind() == PassageAnnotation.Kind.COMMENT) {
+            List<Long> doomed = new ArrayList<>();
+            doomed.add(annotation.getId());
+            if (annotation.isRoot()) {
+                doomed.addAll(annotationRepository.findReplyIds(annotation.getId()));
+            }
+            mentionService.deleteFor(CommentMention.SourceKind.PASSAGE_COMMENT, doomed);
+        }
+
         annotationRepository.delete(annotation);
     }
 
@@ -349,11 +408,19 @@ public class PassageSocialService {
     private static PassageCommentResponse toResponse(
             PassageAnnotation annotation,
             Long currentUserId,
-            List<PassageAnnotation> replies) {
+            List<PassageAnnotation> replies,
+            Map<Long, List<CommentMention>> mentionsBySource) {
         User author = annotation.getUser();
         List<PassageCommentResponse> mappedReplies = replies.stream()
                 .sorted(Comparator.comparing(PassageAnnotation::getCreatedAt))
-                .map(reply -> toResponse(reply, currentUserId, List.of()))
+                .map(reply -> toResponse(reply, currentUserId, List.of(), mentionsBySource))
+                .toList();
+        List<MentionResponse> mentions = mentionsBySource
+                .getOrDefault(annotation.getId(), List.of()).stream()
+                .map(mention -> new MentionResponse(
+                        mention.getMentioned().getId(),
+                        mention.getHandle(),
+                        mention.getMentioned().getPseudo()))
                 .toList();
         return new PassageCommentResponse(
                 annotation.getId(),
@@ -364,6 +431,9 @@ public class PassageSocialService {
                 annotation.isSpoiler(),
                 currentUserId != null && currentUserId.equals(author.getId()),
                 annotation.getCreatedAt(),
+                mentions,
+                annotation.getGifUrl(),
+                annotation.getGifPreviewUrl(),
                 mappedReplies);
     }
 

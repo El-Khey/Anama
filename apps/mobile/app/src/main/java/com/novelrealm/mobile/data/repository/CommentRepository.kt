@@ -37,12 +37,25 @@ class CommentRepository(private val commentApi: CommentApi) {
                 .toMap()
         }
 
+    /**
+     * Publie un message. `mentionedUserIds` : résolus par l'autocomplétion (le
+     * serveur re-vérifie tout). `gifUrl`/`gifPreviewUrl` : GIF joint —
+     * `body` peut alors être vide, jamais les deux à la fois.
+     */
     suspend fun create(
         chapterId: Long,
         body: String,
         parentId: Long?,
+        mentionedUserIds: List<Long> = emptyList(),
+        gifUrl: String? = null,
+        gifPreviewUrl: String? = null,
     ): ApiResult<ChapterCommentDto> =
-        safeApiCall { commentApi.create(chapterId, CreateCommentRequestDto(body, parentId)) }
+        safeApiCall {
+            commentApi.create(
+                chapterId,
+                CreateCommentRequestDto(body, parentId, mentionedUserIds, gifUrl, gifPreviewUrl),
+            )
+        }
 
     suspend fun update(commentId: Long, body: String): ApiResult<ChapterCommentDto> =
         safeApiCall { commentApi.update(commentId, UpdateCommentRequestDto(body)) }

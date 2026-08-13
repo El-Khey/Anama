@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.HeartBroken
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -103,13 +104,22 @@ import kotlinx.coroutines.launch
 @Composable
 fun LibraryScreen(
     onNovelClick: (Long) -> Unit,
+    onOpenNotifications: () -> Unit,
+    /**
+     * Le nombre de notifications non lues, tenu par la coquille (MainScreen) —
+     * la même valeur pastille la cloche ici et l'onglet Profil en bas.
+     */
+    unreadNotifications: Long,
     modifier: Modifier = Modifier,
     viewModel: LibraryViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsState()
 
-    // Rafraîchit à chaque retour sur l'onglet (la bibliothèque évolue depuis le détail).
-    LaunchedEffect(Unit) { viewModel.refresh() }
+    // Rafraîchit à chaque retour sur l'onglet : la bibliothèque évolue depuis le
+    // détail d'un roman.
+    LaunchedEffect(Unit) {
+        viewModel.refresh()
+    }
 
     var showCreateDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
@@ -142,8 +152,10 @@ fun LibraryScreen(
             LibraryHeader(
                 total = state.entries.size,
                 statusFilter = statusFilter,
+                unreadNotifications = unreadNotifications,
                 onStatusFilterChange = { statusFilter = it },
                 onCreateShelf = { showCreateDialog = true },
+                onOpenNotifications = onOpenNotifications,
             )
 
             if (tabs.isNotEmpty()) {
@@ -394,13 +406,15 @@ private fun rememberLibraryTabs(
     }
 }
 
-/** Titre + total suivi + filtre par statut + création d'étagère. */
+/** Titre + total suivi + cloche + filtre par statut + création d'étagère. */
 @Composable
 private fun LibraryHeader(
     total: Int,
     statusFilter: String?,
+    unreadNotifications: Long,
     onStatusFilterChange: (String?) -> Unit,
     onCreateShelf: () -> Unit,
+    onOpenNotifications: () -> Unit,
 ) {
     var filterMenuOpen by remember { mutableStateOf(false) }
     val activeStatus = ReadingStatus.fromId(statusFilter)
@@ -429,6 +443,12 @@ private fun LibraryHeader(
                 else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+
+        // La cloche (issue #45, §3) : le badge dit combien de non-lues, l'appui ouvre
+        // la liste. Posée AVANT le filtre : elle concerne tout NovelRealm, les deux
+        // autres boutons ne concernent que la bibliothèque.
+        BellAction(unread = unreadNotifications, onClick = onOpenNotifications)
+        Spacer(Modifier.width(10.dp))
 
         Box {
             // Le filtre se remplit d'accent quand il est actif : l'état se voit sur le
@@ -475,7 +495,47 @@ private fun LibraryHeader(
 }
 
 /**
- * Bouton d'en-tête : pastille ronde de 42 dp. Les deux actions ont ainsi la même
+ * La cloche et son badge (issue #45, §3). Le badge est posé PAR-DESSUS le disque,
+ * dans le coin haut-droit — un chiffre à côté de l'icône déplacerait le bouton à
+ * chaque changement. Au-delà de 9, « 9+ » : la valeur exacte est dans l'écran.
+ */
+@Composable
+private fun BellAction(unread: Long, onClick: () -> Unit) {
+    Box {
+        HeaderAction(
+            icon = Icons.Outlined.Notifications,
+            contentDescription = "Notifications",
+            filled = false,
+            onClick = onClick,
+        )
+        if (unread > 0) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(18.dp)
+                    .clip(CircleShape)
+                    // Cerclé de la couleur de fond : le badge se détache du disque
+                    // au lieu de s'y fondre.
+                    .background(MaterialTheme.colorScheme.background)
+                    .padding(1.5.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary),
+            ) {
+                Text(
+                    text = if (unread > 9) "9+" else "$unread",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Bouton d'en-tête : pastille ronde de 42 dp. Les actions ont ainsi la même
  * silhouette — une icône nue à côté d'une pastille pleine donnait deux poids visuels
  * différents pour deux commandes de même rang.
  */

@@ -75,12 +75,7 @@ public class PassageSocialController {
             @Valid @RequestBody CreatePassageCommentRequest request,
             Authentication authentication) {
         PassageCommentResponse created = passageService.comment(
-                authentication.getName(),
-                chapterId,
-                request.blockIndex(),
-                request.body(),
-                request.isSpoiler(),
-                request.parentId());
+                authentication.getName(), chapterId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 

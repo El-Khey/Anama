@@ -1,7 +1,8 @@
 package com.novelrealm.dto;
 
+import java.util.List;
+
 import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
@@ -15,13 +16,16 @@ import jakarta.validation.constraints.Size;
  * <p>Pas de bornes intra-bloc ici, contrairement aux citations : on commente le
  * paragraphe, pas une phrase choisie dedans. Citer vise une phrase parce qu'on la
  * recopie ; réagir vise le moment, et le moment tient dans le paragraphe.
+ *
+ * <p><b>{@code body} n'est plus {@code @NotBlank}</b> depuis l'issue #45, §5 : un
+ * message peut être un GIF seul. « Du texte OU un GIF » est une règle
+ * inter-champs, tenue par le service.
  */
 public record CreatePassageCommentRequest(
         @NotNull(message = "Le bloc est obligatoire")
         @Min(value = 0, message = "Index de bloc invalide")
         Integer blockIndex,
 
-        @NotBlank(message = "Le message ne peut pas être vide")
         @Size(max = 1_000, message = "Le message ne peut pas dépasser 1000 caractères")
         String body,
 
@@ -43,7 +47,18 @@ public record CreatePassageCommentRequest(
          * réponse est accepté : le serveur re-rattache au fil racine plutôt que de
          * refuser, parce que du point de vue du lecteur le geste est le même.
          */
-        Long parentId
+        Long parentId,
+
+        /** Mentions résolues par l'autocomplétion (issue #45, §2) — re-vérifiées par le serveur. */
+        List<Long> mentionedUserIds,
+
+        /** URL du fournisseur pour la version animée (issue #45, §5). */
+        @Size(max = 500, message = "URL de GIF trop longue")
+        String gifUrl,
+
+        /** URL du fournisseur pour l'image figée affichée par défaut. */
+        @Size(max = 500, message = "URL de GIF trop longue")
+        String gifPreviewUrl
 ) {
     /** {@code true} seulement si le client l'a explicitement demandé. */
     public boolean isSpoiler() {

@@ -12,7 +12,9 @@ import com.novelrealm.mobile.data.remote.api.CategoryApi
 import com.novelrealm.mobile.data.remote.api.ChapterApi
 import com.novelrealm.mobile.data.remote.api.CommentApi
 import com.novelrealm.mobile.data.remote.api.FavoriteApi
+import com.novelrealm.mobile.data.remote.api.GifApi
 import com.novelrealm.mobile.data.remote.api.HistoryApi
+import com.novelrealm.mobile.data.remote.api.NotificationApi
 import com.novelrealm.mobile.data.remote.api.LibraryApi
 import com.novelrealm.mobile.data.remote.api.NovelApi
 import com.novelrealm.mobile.data.remote.api.ProgressApi
@@ -25,7 +27,9 @@ import com.novelrealm.mobile.data.repository.CategoryRepository
 import com.novelrealm.mobile.data.repository.ChapterRepository
 import com.novelrealm.mobile.data.repository.CommentRepository
 import com.novelrealm.mobile.data.repository.FavoriteRepository
+import com.novelrealm.mobile.data.repository.GifRepository
 import com.novelrealm.mobile.data.repository.HistoryRepository
+import com.novelrealm.mobile.data.repository.NotificationRepository
 import com.novelrealm.mobile.data.repository.LibraryRepository
 import com.novelrealm.mobile.data.repository.NovelRepository
 import com.novelrealm.mobile.data.repository.ProgressRepository
@@ -133,6 +137,8 @@ object ServiceLocator {
     private val favoriteApi: FavoriteApi by lazy { retrofit.create(FavoriteApi::class.java) }
     private val categoryApi: CategoryApi by lazy { retrofit.create(CategoryApi::class.java) }
     private val userApi: UserApi by lazy { retrofit.create(UserApi::class.java) }
+    private val notificationApi: NotificationApi by lazy { retrofit.create(NotificationApi::class.java) }
+    private val gifApi: GifApi by lazy { retrofit.create(GifApi::class.java) }
 
     // ── Repositories ──
     val authRepository: AuthRepository by lazy { AuthRepository(authApi, sessionManager) }
@@ -148,4 +154,6 @@ object ServiceLocator {
     val favoriteRepository: FavoriteRepository by lazy { FavoriteRepository(favoriteApi) }
     val categoryRepository: CategoryRepository by lazy { CategoryRepository(categoryApi) }
     val userRepository: UserRepository by lazy { UserRepository(userApi) }
+    val notificationRepository: NotificationRepository by lazy { NotificationRepository(notificationApi) }
+    val gifRepository: GifRepository by lazy { GifRepository(gifApi) }
 }

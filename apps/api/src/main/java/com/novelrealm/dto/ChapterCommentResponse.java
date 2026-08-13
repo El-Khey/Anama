@@ -14,6 +14,11 @@ import java.util.List;
  * <p>Un message supprimé qui porte encore des réponses est renvoyé en
  * « pierre tombale » : {@code deleted = true}, corps et auteur vidés, mais ses
  * réponses restent lisibles.
+ *
+ * <p>{@code mentions} (issue #45, §2) : qui est visé par les {@code @pseudo} du
+ * texte — le client s'en sert pour les mettre en évidence et les rendre
+ * cliquables. {@code gifUrl}/{@code gifPreviewUrl} (issue #45, §5) : le GIF
+ * joint, s'il y en a un ; {@code body} peut alors être vide.
  */
 public record ChapterCommentResponse(
         Long id,
@@ -26,5 +31,8 @@ public record ChapterCommentResponse(
         boolean edited,
         Instant createdAt,
         Instant updatedAt,
+        List<MentionResponse> mentions,
+        String gifUrl,
+        String gifPreviewUrl,
         List<ChapterCommentResponse> replies
 ) {}

@@ -27,21 +27,26 @@ public class UserMapper {
         return toResponse(user, true);
     }
 
-    /** Réponse « publique » : mêmes champs mais sans les préférences. */
+    /**
+     * Réponse « publique » : sans les préférences, et <b>sans l'email</b>. Les
+     * mentions (issue #45, §2) rendent les profils atteignables depuis n'importe
+     * quel commentaire — l'email y fuyait jusqu'ici, ce qui ne se voyait pas tant
+     * que personne n'appelait ces routes.
+     */
     public UserResponse toPublicResponse(User user) {
         return toResponse(user, false);
     }
 
-    private UserResponse toResponse(User user, boolean includePreferences) {
+    private UserResponse toResponse(User user, boolean own) {
         return new UserResponse(
                 user.getId(),
                 user.getPseudo(),
-                user.getEmail(),
+                own ? user.getEmail() : null,
                 user.getBio(),
                 user.getAvatarUrl(),
                 user.getBannerUrl(),
                 user.getProvider(),
-                includePreferences ? parsePreferences(user.getPreferences()) : null,
+                own ? parsePreferences(user.getPreferences()) : null,
                 user.getCreatedAt());
     }
 

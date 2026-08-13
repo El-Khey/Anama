@@ -159,6 +159,11 @@ CREATE TABLE IF NOT EXISTS chapter_comment (
     -- Réservée à l'étape « anti-spoil » de #41 : la colonne est posée
     -- maintenant pour s'épargner une migration, l'API ne l'expose pas encore.
     is_spoiler  BOOLEAN NOT NULL DEFAULT FALSE,
+    -- GIF joint (issue #45, §5) : deux URL du fournisseur (animée + image figée),
+    -- jamais un fichier chez nous. NULL = message texte ordinaire ; quand
+    -- gif_url est posée, body PEUT être vide (règle tenue par le service).
+    gif_url         VARCHAR(500),
+    gif_preview_url VARCHAR(500),
     created_at  TIMESTAMP NOT NULL,
     updated_at  TIMESTAMP NOT NULL,
     deleted_at  TIMESTAMP                                   -- NULL = message vivant
@@ -205,6 +210,10 @@ CREATE TABLE IF NOT EXISTS passage_annotation (
     body          TEXT,                                    -- réservé aux commentaires/notes
     is_private    BOOLEAN NOT NULL DEFAULT TRUE,
     is_spoiler    BOOLEAN NOT NULL DEFAULT FALSE,
+    -- GIF joint (issue #45, §5 — commentaires uniquement) : mêmes règles
+    -- qu'en fin de chapitre.
+    gif_url         VARCHAR(500),
+    gif_preview_url VARCHAR(500),
     -- Réponse à un autre commentaire de passage (#41, §4). Un seul niveau :
     -- au-delà, l'indentation devient illisible sur un téléphone. Supprimer
     -- un message emporte ses réponses — un fil de trois messages accroché à
@@ -254,3 +263,63 @@ CREATE INDEX IF NOT EXISTS idx_passage_annotation_thread
 -- désormais les deux chemins pour que ça ne repasse plus inaperçu.
 CREATE INDEX IF NOT EXISTS idx_passage_annotation_parent
     ON passage_annotation (parent_id);
+
+-- ──────────────── Mentions @pseudo (issue #45, §2) ──────────────────
+-- Résolues à la PUBLICATION : le texte garde « @pseudo » tel que tapé,
+-- cette table fige QUI était visé (l'id) et SOUS QUEL NOM (handle).
+-- Un renommage ultérieur ne casse donc ni le lien ni la mise en évidence.
+--
+-- source_kind + source_id : un commentaire vit dans deux tables selon son
+-- emplacement (chapter_comment, passage_annotation) — pas de FK possible.
+-- En contrepartie, PassageSocialService purge les mentions quand il
+-- supprime un commentaire de passage (ceux de chapitre restent : pierre
+-- tombale, jamais effacés).
+CREATE TABLE IF NOT EXISTS comment_mention (
+    id                 BIGSERIAL PRIMARY KEY,
+    source_kind        VARCHAR(20) NOT NULL
+                       CHECK (source_kind IN ('CHAPTER_COMMENT', 'PASSAGE_COMMENT')),
+    source_id          BIGINT NOT NULL,
+    mentioned_user_id  BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    handle             VARCHAR(255) NOT NULL,               -- pseudo tel que tapé
+    created_at         TIMESTAMP NOT NULL,
+    -- Mentionner deux fois la même personne dans un message = une mention.
+    CONSTRAINT comment_mention_once_uq UNIQUE (source_kind, source_id, mentioned_user_id)
+);
+
+-- Les mentions d'une page de fils, en une requête.
+CREATE INDEX IF NOT EXISTS idx_comment_mention_source
+    ON comment_mention (source_kind, source_id);
+
+-- ──────────────── Notifications (issue #45, §3) ──────────────────────
+-- La cloche : réponses à mes commentaires, mentions. Le CHECK réserve
+-- NEW_CHAPTER pour l'issue #22, qui se greffera ici sans migration.
+--
+-- L'extrait est FIGÉ à la création : une notification raconte ce qui
+-- s'est passé, elle survit à la suppression du commentaire d'origine.
+-- comment_id est sans FK (table polymorphe) ; actor/novel/chapter sont
+-- nullables ET en cascade : un compte ou un roman supprimé emporte ses
+-- notifications, qui n'auraient plus rien à ouvrir.
+CREATE TABLE IF NOT EXISTS notification (
+    id            BIGSERIAL PRIMARY KEY,
+    user_id       BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type          VARCHAR(30) NOT NULL
+                  CHECK (type IN ('COMMENT_REPLY', 'MENTION', 'NEW_CHAPTER')),
+    actor_id      BIGINT REFERENCES users(id)    ON DELETE CASCADE,
+    novel_id      BIGINT REFERENCES novels(id)   ON DELETE CASCADE,
+    chapter_id    BIGINT REFERENCES chapters(id) ON DELETE CASCADE,
+    comment_kind  VARCHAR(20)
+                  CHECK (comment_kind IN ('CHAPTER_COMMENT', 'PASSAGE_COMMENT')),
+    comment_id    BIGINT,
+    block_index   INT,                                     -- passages : index à l'événement
+    excerpt       VARCHAR(200),
+    is_read       BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at    TIMESTAMP NOT NULL
+);
+
+-- Le badge : COUNT des non-lues, à chaque retour de l'app au premier plan.
+CREATE INDEX IF NOT EXISTS idx_notification_user_read
+    ON notification (user_id, is_read);
+
+-- La liste : les miennes, les plus récentes d'abord.
+CREATE INDEX IF NOT EXISTS idx_notification_user_created
+    ON notification (user_id, created_at DESC);

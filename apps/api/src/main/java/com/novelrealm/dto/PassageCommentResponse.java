@@ -12,6 +12,10 @@ import java.util.List;
  *
  * <p>{@code replies} n'est rempli que sur les messages racines — l'arbre ne descend
  * jamais plus bas d'un niveau, et une réponse porte donc toujours une liste vide.
+ *
+ * <p>{@code mentions} (issue #45, §2) : qui est visé par les {@code @pseudo} du
+ * texte. {@code gifUrl}/{@code gifPreviewUrl} (issue #45, §5) : le GIF joint ;
+ * {@code body} peut alors être vide.
  */
 public record PassageCommentResponse(
         Long id,
@@ -22,5 +26,8 @@ public record PassageCommentResponse(
         boolean spoiler,
         boolean mine,
         Instant createdAt,
+        List<MentionResponse> mentions,
+        String gifUrl,
+        String gifPreviewUrl,
         List<PassageCommentResponse> replies
 ) {}

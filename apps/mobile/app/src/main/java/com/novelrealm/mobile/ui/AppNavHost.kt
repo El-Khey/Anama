@@ -8,6 +8,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.novelrealm.mobile.ui.detail.NovelDetailScreen
+import com.novelrealm.mobile.ui.inbox.InboxScreen
 import com.novelrealm.mobile.ui.main.MainScreen
 import com.novelrealm.mobile.ui.profile.AccountScreen
 import com.novelrealm.mobile.ui.profile.AppearanceScreen
@@ -17,6 +18,7 @@ import com.novelrealm.mobile.ui.profile.SettingsRoutes
 import com.novelrealm.mobile.ui.quotes.MyQuotesScreen
 import com.novelrealm.mobile.ui.reader.ReaderScreen
 import com.novelrealm.mobile.ui.reviews.ReviewsScreen
+import com.novelrealm.mobile.ui.social.PublicProfileScreen
 
 // Navigation racine de l'app connectée (#35) : la coquille à onglets (main) est la base ;
 // détail / avis / lecteur s'empilent PAR-DESSUS (plein écran, sans barre du bas) — le
@@ -24,6 +26,13 @@ import com.novelrealm.mobile.ui.reviews.ReviewsScreen
 @Composable
 fun AppNavHost(onLogout: () -> Unit, modifier: Modifier = Modifier) {
     val navController = rememberNavController()
+
+    // Le lien profond de l'écran « Activité » (issue #45) : un
+    // passage précis (`block` ≥ 0) ou la discussion de fin de chapitre (`comments`).
+    // Une seule fabrique d'URL — deux écrans l'utilisent, ils doivent rester d'accord.
+    val openChapterAt = { novelId: Long, chapterId: Long, block: Int, comments: Boolean ->
+        navController.navigate("reader/$novelId/$chapterId?block=$block&comments=$comments")
+    }
 
     NavHost(navController = navController, startDestination = "main", modifier = modifier) {
         composable("main") {
@@ -34,6 +43,7 @@ fun AppNavHost(onLogout: () -> Unit, modifier: Modifier = Modifier) {
                     navController.navigate("reader/$novelId/$chapterId")
                 },
                 onOpenSettings = { route -> navController.navigate(route) },
+                onOpenNotifications = { navController.navigate(SettingsRoutes.ACTIVITY) },
             )
         }
 
@@ -65,6 +75,28 @@ fun AppNavHost(onLogout: () -> Unit, modifier: Modifier = Modifier) {
                 },
             )
         }
+        // ── « Activité » (issue #45, §3 et §4) ──
+        // Un seul écran pour les deux : ce qu'on m'écrit, et ce que j'ai écrit. La
+        // cloche de la bibliothèque et la ligne « Activité » du profil mènent
+        // ici — d'où une seule route (SettingsRoutes.ACTIVITY vaut la même chaîne).
+        composable(SettingsRoutes.ACTIVITY) {
+            InboxScreen(
+                onBack = { navController.popBackStack() },
+                onOpenChapter = openChapterAt,
+            )
+        }
+
+        // ── Profil public d'un autre lecteur (issue #45, §2) ──
+        composable(
+            route = "user/{userId}",
+            arguments = listOf(navArgument("userId") { type = NavType.LongType }),
+        ) { entry ->
+            val userId = entry.arguments?.getLong("userId") ?: return@composable
+            PublicProfileScreen(
+                userId = userId,
+                onBack = { navController.popBackStack() },
+            )
+        }
 
         composable(
             route = "novel/{novelId}",
@@ -89,15 +121,21 @@ fun AppNavHost(onLogout: () -> Unit, modifier: Modifier = Modifier) {
             )
         }
         composable(
-            // `block` est un paramètre OPTIONNEL : les ouvertures normales du lecteur
-            // (bibliothèque, fiche, historique) continuent d'appeler la route sans lui.
-            route = "reader/{novelId}/{chapterId}?block={block}",
+            // `block` et `comments` sont OPTIONNELS : les ouvertures normales du
+            // lecteur (bibliothèque, fiche, historique) appellent la route sans eux.
+            // `block` ≥ 0 rejoint un passage ; `comments` fait défiler jusqu'à la
+            // discussion de fin de chapitre (liens profonds de l'issue #45, §3).
+            route = "reader/{novelId}/{chapterId}?block={block}&comments={comments}",
             arguments = listOf(
                 navArgument("novelId") { type = NavType.LongType },
                 navArgument("chapterId") { type = NavType.LongType },
                 navArgument("block") {
                     type = NavType.IntType
                     defaultValue = -1
+                },
+                navArgument("comments") {
+                    type = NavType.BoolType
+                    defaultValue = false
                 },
             ),
         ) { entry ->
@@ -107,6 +145,8 @@ fun AppNavHost(onLogout: () -> Unit, modifier: Modifier = Modifier) {
                 novelId = novelId,
                 chapterId = chapterId,
                 highlightBlock = entry.arguments?.getInt("block") ?: -1,
+                openComments = entry.arguments?.getBoolean("comments") ?: false,
+                onOpenUser = { userId -> navController.navigate("user/$userId") },
                 onBack = { navController.popBackStack() },
             )
         }

@@ -31,10 +31,16 @@ class PassageRepository(private val passageApi: PassageApi) {
         body: String,
         spoiler: Boolean,
         parentId: Long? = null,
+        mentionedUserIds: List<Long> = emptyList(),
+        gifUrl: String? = null,
+        gifPreviewUrl: String? = null,
     ): ApiResult<PassageCommentDto> = safeApiCall {
         passageApi.comment(
             chapterId,
-            CreatePassageCommentRequestDto(blockIndex, body, spoiler, parentId),
+            CreatePassageCommentRequestDto(
+                blockIndex, body, spoiler, parentId,
+                mentionedUserIds, gifUrl, gifPreviewUrl,
+            ),
         )
     }
 

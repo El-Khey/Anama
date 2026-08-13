@@ -3,6 +3,7 @@ package com.novelrealm.controller;
 import com.novelrealm.dto.ChangePasswordRequest;
 import com.novelrealm.dto.UpdateProfileRequest;
 import com.novelrealm.dto.UserResponse;
+import com.novelrealm.dto.UserSearchResponse;
 import com.novelrealm.dto.UserStatsResponse;
 import com.novelrealm.exception.InvalidProfileFieldException;
 import com.novelrealm.model.User;
@@ -65,6 +66,22 @@ public class UserController {
     @GetMapping("/{id}")
     public ResponseEntity<UserResponse> findById(@PathVariable Long id) {
         return ResponseEntity.ok(userMapper.toPublicResponse(userService.findById(id)));
+    }
+
+    /**
+     * GET /api/users/search?q=… — autocomplétion des mentions (issue #45, §2).
+     * Huit résultats au plus, jamais soi-même, jamais d'email. Route littérale :
+     * elle gagne sur {@code /{id}} lors du routage, aucun conflit.
+     */
+    @GetMapping("/search")
+    public ResponseEntity<List<UserSearchResponse>> search(
+            @RequestParam("q") String query,
+            Authentication authentication) {
+        List<UserSearchResponse> body = userService.search(authentication.getName(), query).stream()
+                .map(user -> new UserSearchResponse(
+                        user.getId(), user.getPseudo(), user.getAvatarUrl()))
+                .toList();
+        return ResponseEntity.ok(body);
     }
 
     /** GET /api/users/me — profil complet de l'utilisateur connecté (préférences incluses). */
