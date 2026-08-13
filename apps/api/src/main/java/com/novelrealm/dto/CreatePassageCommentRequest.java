@@ -52,11 +52,11 @@ public record CreatePassageCommentRequest(
         /** Mentions résolues par l'autocomplétion (issue #45, §2) — re-vérifiées par le serveur. */
         List<Long> mentionedUserIds,
 
-        /** URL Tenor de la version animée (issue #45, §5). */
+        /** URL du fournisseur pour la version animée (issue #45, §5). */
         @Size(max = 500, message = "URL de GIF trop longue")
         String gifUrl,
 
-        /** URL Tenor de l'image figée affichée par défaut. */
+        /** URL du fournisseur pour l'image figée affichée par défaut. */
         @Size(max = 500, message = "URL de GIF trop longue")
         String gifPreviewUrl
 ) {

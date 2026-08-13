@@ -2,7 +2,7 @@ package com.novelrealm.exception;
 
 /**
  * Levée quand un commentaire de fin de chapitre est mal formé : ni texte ni GIF,
- * ou une URL de GIF qui ne vient pas de Tenor. → 400.
+ * ou une URL de GIF qui ne vient pas du fournisseur. → 400.
  *
  * <p>(Les commentaires de passage ont leur propre {@link InvalidPassageException},
  * qui couvre déjà ce rôle.)

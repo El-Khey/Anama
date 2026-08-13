@@ -29,11 +29,11 @@ public record CreateChapterCommentRequest(
 
         List<Long> mentionedUserIds,
 
-        /** URL Tenor de la version animée (voir GifService pour la validation). */
+        /** URL du fournisseur pour la version animée (voir GifService pour la validation). */
         @Size(max = 500, message = "URL de GIF trop longue")
         String gifUrl,
 
-        /** URL Tenor de l'image figée affichée par défaut. */
+        /** URL du fournisseur pour l'image figée affichée par défaut. */
         @Size(max = 500, message = "URL de GIF trop longue")
         String gifPreviewUrl
 ) {}

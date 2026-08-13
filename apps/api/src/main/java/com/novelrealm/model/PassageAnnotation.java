@@ -109,7 +109,7 @@ public class PassageAnnotation {
     private boolean isSpoiler = false;
 
     // ── GIF joint (issue #45, §5 — commentaires uniquement) ──────────────────
-    // Mêmes règles qu'en fin de chapitre : deux URL Tenor, l'image figée par
+    // Mêmes règles qu'en fin de chapitre : deux URL du fournisseur, l'image figée par
     // défaut, l'animation à la demande. body PEUT être vide si gif_url est posée.
     @Column(name = "gif_url", length = 500)
     private String gifUrl;

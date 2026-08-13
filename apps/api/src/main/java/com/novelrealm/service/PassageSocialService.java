@@ -211,8 +211,8 @@ public class PassageSocialService {
         PassageAnnotation parent = resolveParent(chapterId, request.parentId());
 
         String cleaned = request.body() == null ? "" : request.body().strip();
-        String gifUrl = GifService.requireTenorUrl(request.gifUrl());
-        String gifPreviewUrl = GifService.requireTenorUrl(request.gifPreviewUrl());
+        String gifUrl = GifService.requireGifUrl(request.gifUrl());
+        String gifPreviewUrl = GifService.requireGifUrl(request.gifPreviewUrl());
         if (cleaned.isEmpty() && gifUrl == null) {
             throw new InvalidPassageException("Le message ne peut pas être vide");
         }

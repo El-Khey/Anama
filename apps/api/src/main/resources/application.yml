@@ -73,14 +73,16 @@ app:
     cookie-same-site: ${JWT_COOKIE_SAMESITE:Lax}          # None en prod (domaines ≠)
 
   # ── GIF dans les commentaires (issue #45, §5) ──────────────────
-  # L'app ne parle JAMAIS à Tenor directement : l'API fait proxy, la clé
-  # reste côté serveur. Sans clé (TENOR_API_KEY absent du .env), la
+  # L'app ne parle JAMAIS au fournisseur directement : l'API fait proxy, la
+  # clé reste côté serveur. Sans clé (KLIPY_API_KEY absent du .env), la
   # fonctionnalité est simplement désactivée — l'app masque le bouton GIF,
-  # tout le reste fonctionne. Clé gratuite : console Google Cloud, API
-  # « Tenor API v2 ».
-  tenor:
-    api-key: ${TENOR_API_KEY:}
-    base-url: https://tenor.googleapis.com/v2
+  # tout le reste fonctionne. Clé gratuite : partner.klipy.com.
+  #
+  # Ce service visait Tenor jusqu'à ce que Google ferme son API aux
+  # développeurs (inscriptions closes le 13/01/2026, arrêt le 30/06/2026).
+  klipy:
+    api-key: ${KLIPY_API_KEY:}
+    base-url: https://api.klipy.com/api/v1
 
 server:
   port: 8080

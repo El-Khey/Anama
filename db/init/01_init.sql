@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS chapter_comment (
     -- Réservée à l'étape « anti-spoil » de #41 : la colonne est posée
     -- maintenant pour s'épargner une migration, l'API ne l'expose pas encore.
     is_spoiler  BOOLEAN NOT NULL DEFAULT FALSE,
-    -- GIF joint (issue #45, §5) : deux URL Tenor (animée + image figée),
+    -- GIF joint (issue #45, §5) : deux URL du fournisseur (animée + image figée),
     -- jamais un fichier chez nous. NULL = message texte ordinaire ; quand
     -- gif_url est posée, body PEUT être vide (règle tenue par le service).
     gif_url         VARCHAR(500),

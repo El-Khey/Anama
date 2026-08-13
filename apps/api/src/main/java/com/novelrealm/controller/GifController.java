@@ -11,8 +11,8 @@ import com.novelrealm.dto.GifPageResponse;
 import com.novelrealm.service.GifService;
 
 /**
- * Recherche de GIF (issue #45, §5) — proxy Tenor, la clé d'API ne quitte jamais
- * le serveur. Routes authentifiées comme tout le reste : le quota Tenor est
+ * Recherche de GIF (issue #45, §5) — proxy KLIPY, la clé d'API ne quitte jamais
+ * le serveur. Routes authentifiées comme tout le reste : le quota KLIPY est
  * ainsi réservé à nos utilisateurs, pas à quiconque scanne des ports.
  */
 @RestController

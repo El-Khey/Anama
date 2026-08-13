@@ -58,7 +58,7 @@ public class ChapterComment {
     private String body;
 
     // ── GIF joint (issue #45, §5) ────────────────────────────────────────────
-    // Deux URL Tenor, jamais un fichier chez nous : l'animée, et l'image figée
+    // Deux URL du fournisseur, jamais un fichier chez nous : l'animée, et l'image figée
     // affichée par défaut (l'animation ne démarre qu'à la demande). Nullables :
     // la plupart des messages restent du texte seul. Quand gif_url est posée,
     // body PEUT être vide — mais jamais les deux à la fois (règle du service).
@@ -100,7 +100,7 @@ public class ChapterComment {
         this.updatedAt = Instant.now();
     }
 
-    /** Joint un GIF (URLs déjà validées par le service — Tenor uniquement). */
+    /** Joint un GIF (URLs déjà validées par le service — fournisseur uniquement). */
     public void attachGif(String gifUrl, String gifPreviewUrl) {
         this.gifUrl = gifUrl;
         this.gifPreviewUrl = gifPreviewUrl;

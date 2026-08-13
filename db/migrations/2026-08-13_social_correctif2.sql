@@ -82,7 +82,7 @@ CREATE INDEX IF NOT EXISTS idx_notification_user_created
     ON notification (user_id, created_at DESC);
 
 -- ──────────────── GIF joints (issue #45, §5) ─────────────────────────
--- Deux URL Tenor par message (l'animée + l'image figée affichée par
+-- Deux URL du fournisseur par message (l'animée + l'image figée affichée par
 -- défaut), jamais un fichier chez nous. NULL = message texte ordinaire.
 ALTER TABLE chapter_comment    ADD COLUMN IF NOT EXISTS gif_url         VARCHAR(500);
 ALTER TABLE chapter_comment    ADD COLUMN IF NOT EXISTS gif_preview_url VARCHAR(500);

@@ -160,8 +160,8 @@ public class ChapterCommentService {
         enforceRateLimit(author.getId());
 
         String body = request.body() == null ? "" : request.body().strip();
-        String gifUrl = GifService.requireTenorUrl(request.gifUrl());
-        String gifPreviewUrl = GifService.requireTenorUrl(request.gifPreviewUrl());
+        String gifUrl = GifService.requireGifUrl(request.gifUrl());
+        String gifPreviewUrl = GifService.requireGifUrl(request.gifPreviewUrl());
         if (body.isEmpty() && gifUrl == null) {
             throw new InvalidCommentException("Le message ne peut pas être vide");
         }
