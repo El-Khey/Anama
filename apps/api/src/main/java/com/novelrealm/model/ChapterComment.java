@@ -57,6 +57,17 @@ public class ChapterComment {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String body;
 
+    // ── GIF joint (issue #45, §5) ────────────────────────────────────────────
+    // Deux URL Tenor, jamais un fichier chez nous : l'animée, et l'image figée
+    // affichée par défaut (l'animation ne démarre qu'à la demande). Nullables :
+    // la plupart des messages restent du texte seul. Quand gif_url est posée,
+    // body PEUT être vide — mais jamais les deux à la fois (règle du service).
+    @Column(name = "gif_url", length = 500)
+    private String gifUrl;
+
+    @Column(name = "gif_preview_url", length = 500)
+    private String gifPreviewUrl;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -87,6 +98,12 @@ public class ChapterComment {
     @PreUpdate
     void onUpdate() {
         this.updatedAt = Instant.now();
+    }
+
+    /** Joint un GIF (URLs déjà validées par le service — Tenor uniquement). */
+    public void attachGif(String gifUrl, String gifPreviewUrl) {
+        this.gifUrl = gifUrl;
+        this.gifPreviewUrl = gifPreviewUrl;
     }
 
     /** Marque le message comme supprimé sans effacer la ligne (voir classe). */
@@ -124,6 +141,14 @@ public class ChapterComment {
 
     public void setBody(String body) {
         this.body = body;
+    }
+
+    public String getGifUrl() {
+        return gifUrl;
+    }
+
+    public String getGifPreviewUrl() {
+        return gifPreviewUrl;
     }
 
     public Instant getCreatedAt() {

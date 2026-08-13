@@ -23,6 +23,15 @@ import java.time.Duration;
 @Service
 public class AuthenticationService {
 
+    /**
+     * En-tête de réponse portant un token ré-émis par le renouvellement glissant
+     * (issue #45, §1). Le client mobile remplace silencieusement son token quand il
+     * le voit passer ; le web, lui, reçoit le même token via le cookie httpOnly et
+     * n'a rien à faire. <b>Doit rester identique à la constante côté mobile</b>
+     * ({@code AuthInterceptor.REFRESHED_TOKEN_HEADER}).
+     */
+    public static final String REFRESHED_TOKEN_HEADER = "X-Refreshed-Token";
+
     private final JwtService jwtService;
     private final String cookieName;
     private final boolean cookieSecure;
@@ -50,6 +59,23 @@ public class AuthenticationService {
         String token = jwtService.generate(user.getEmail());
         response.addHeader(HttpHeaders.SET_COOKIE, buildCookie(token, expirationSeconds).toString());
         return token;
+    }
+
+    /**
+     * Ré-émet un token frais pour un utilisateur déjà authentifié (renouvellement
+     * glissant, issue #45, §1) : nouveau cookie httpOnly pour le web, en-tête
+     * {@link #REFRESHED_TOKEN_HEADER} pour le mobile. Les deux transports sont
+     * servis à chaque fois — le serveur ne sait pas d'où vient la requête, et un
+     * cookie surnuméraire côté mobile ne gêne personne.
+     *
+     * <p>Appelé par le filtre JWT quand le token courant a dépassé la moitié de sa
+     * vie : un utilisateur actif ne voit donc jamais son token expirer, seule une
+     * vraie période d'inactivité (la durée complète du token) le déconnecte.
+     */
+    public void refresh(String email, HttpServletResponse response) {
+        String token = jwtService.generate(email);
+        response.addHeader(HttpHeaders.SET_COOKIE, buildCookie(token, expirationSeconds).toString());
+        response.setHeader(REFRESHED_TOKEN_HEADER, token);
     }
 
     /**

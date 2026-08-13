@@ -59,12 +59,28 @@ app:
   # ── Authentification JWT (mobile + web) ────────────────────────
   # Un seul token signé (HS256) : header `Authorization: Bearer` côté mobile,
   # cookie httpOnly côté web. Le secret DOIT faire ≥ 32 octets (256 bits).
+  #
+  # Renouvellement GLISSANT (issue #45, §1) : passé la moitié de sa vie, un
+  # token est ré-émis silencieusement à la prochaine requête. La durée
+  # ci-dessous n'est donc PAS « la session dure 7 jours » mais « 7 jours
+  # d'inactivité complète déconnectent » — un utilisateur actif reste
+  # connecté indéfiniment.
   jwt:
     secret: ${JWT_SECRET:dev-only-secret-change-me-in-prod-min-32-bytes-long!!}
-    expiration-seconds: ${JWT_EXPIRATION_SECONDS:86400}   # 24 h
+    expiration-seconds: ${JWT_EXPIRATION_SECONDS:604800}  # 7 jours d'inactivité tolérée
     cookie-name: ${JWT_COOKIE_NAME:access_token}
     cookie-secure: ${JWT_COOKIE_SECURE:false}             # true en prod (HTTPS)
     cookie-same-site: ${JWT_COOKIE_SAMESITE:Lax}          # None en prod (domaines ≠)
+
+  # ── GIF dans les commentaires (issue #45, §5) ──────────────────
+  # L'app ne parle JAMAIS à Tenor directement : l'API fait proxy, la clé
+  # reste côté serveur. Sans clé (TENOR_API_KEY absent du .env), la
+  # fonctionnalité est simplement désactivée — l'app masque le bouton GIF,
+  # tout le reste fonctionne. Clé gratuite : console Google Cloud, API
+  # « Tenor API v2 ».
+  tenor:
+    api-key: ${TENOR_API_KEY:}
+    base-url: https://tenor.googleapis.com/v2
 
 server:
   port: 8080

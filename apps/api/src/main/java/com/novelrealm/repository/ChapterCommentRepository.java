@@ -105,10 +105,72 @@ public interface ChapterCommentRepository extends JpaRepository<ChapterComment, 
     /** Garde-fou anti-rafale : cet utilisateur a-t-il écrit depuis {@code since} ? */
     boolean existsByUser_IdAndCreatedAtAfter(Long userId, Instant since);
 
+    // ── « Mes commentaires » (issue #45, §4) ─────────────────────────────────
+
+    /**
+     * MES messages de fin de chapitre vivants, les plus récents d'abord.
+     * Projection scalaire — les entités {@code Chapter} embarqueraient le texte
+     * intégral de chaque chapitre pour trois titres. {@code left join c.parent} :
+     * une navigation implicite {@code c.parent.id} ferait un INNER join et
+     * évincerait les messages racines.
+     */
+    @Query("""
+            select c.id            as id,
+                   c.body          as body,
+                   c.gifUrl        as gifUrl,
+                   c.gifPreviewUrl as gifPreviewUrl,
+                   c.createdAt     as createdAt,
+                   p.id            as parentId,
+                   ch.id           as chapterId,
+                   ch.chapterNumber as chapterNumber,
+                   ch.title        as chapterTitle,
+                   n.id            as novelId,
+                   n.title         as novelTitle,
+                   n.coverImageUrl as novelCoverUrl
+            from ChapterComment c
+              left join c.parent p
+              join c.chapter ch
+              join ch.novel n
+            where c.user.id = :userId
+              and c.deletedAt is null
+            order by c.createdAt desc
+            """)
+    List<MyChapterCommentView> findMine(@Param("userId") Long userId, Pageable pageable);
+
+    /** Total de MES messages vivants (pagination du flux fusionné). */
+    long countByUser_IdAndDeletedAtIsNull(Long userId);
+
     /** Projection d'une ligne de {@link #countByNovel} : un chapitre et son total. */
     interface ChapterCommentCount {
         Long getChapterId();
 
         long getCount();
+    }
+
+    /** Une ligne de « Mes commentaires » côté fin de chapitre — voir {@link #findMine}. */
+    interface MyChapterCommentView {
+        Long getId();
+
+        String getBody();
+
+        String getGifUrl();
+
+        String getGifPreviewUrl();
+
+        Instant getCreatedAt();
+
+        Long getParentId();
+
+        Long getChapterId();
+
+        int getChapterNumber();
+
+        String getChapterTitle();
+
+        Long getNovelId();
+
+        String getNovelTitle();
+
+        String getNovelCoverUrl();
     }
 }

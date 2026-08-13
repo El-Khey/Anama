@@ -96,6 +96,23 @@ public class UserService {
                 .orElseThrow(() -> new UserNotFoundException(email));
     }
 
+    /**
+     * Autocomplétion des mentions (issue #45, §2) : les pseudos contenant la
+     * saisie, huit au plus, sans jamais l'utilisateur lui-même — se mentionner
+     * soi-même ne sert à rien, autant ne pas l'offrir.
+     */
+    @Transactional(readOnly = true)
+    public List<User> search(String requesterEmail, String query) {
+        String cleaned = query == null ? "" : query.strip();
+        if (cleaned.isEmpty()) {
+            return List.of();
+        }
+        User self = findByEmail(requesterEmail);
+        return userRepository.findTop8ByPseudoContainingIgnoreCaseOrderByPseudoAsc(cleaned).stream()
+                .filter(user -> !user.getId().equals(self.getId()))
+                .toList();
+    }
+
     // ── Profil (issue #17) ──────────────────────────────────────────
 
     /** Taille maximale du JSON de préférences (garde-fou anti-abus). */

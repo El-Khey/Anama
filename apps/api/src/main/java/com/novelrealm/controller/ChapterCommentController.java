@@ -92,7 +92,7 @@ public class ChapterCommentController {
             @Valid @RequestBody CreateChapterCommentRequest request,
             Authentication authentication) {
         ChapterCommentResponse created = commentService.create(
-                authentication.getName(), chapterId, request.body(), request.parentId());
+                authentication.getName(), chapterId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 

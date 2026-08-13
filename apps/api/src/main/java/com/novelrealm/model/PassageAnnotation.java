@@ -108,6 +108,15 @@ public class PassageAnnotation {
     @Column(name = "is_spoiler", nullable = false)
     private boolean isSpoiler = false;
 
+    // ── GIF joint (issue #45, §5 — commentaires uniquement) ──────────────────
+    // Mêmes règles qu'en fin de chapitre : deux URL Tenor, l'image figée par
+    // défaut, l'animation à la demande. body PEUT être vide si gif_url est posée.
+    @Column(name = "gif_url", length = 500)
+    private String gifUrl;
+
+    @Column(name = "gif_preview_url", length = 500)
+    private String gifPreviewUrl;
+
     /**
      * Message auquel celui-ci répond, ou {@code null} s'il ouvre le fil.
      *
@@ -198,6 +207,12 @@ public class PassageAnnotation {
         this.emoji = emoji;
     }
 
+    /** Joint un GIF à un commentaire (URLs déjà validées par le service). */
+    public void attachGif(String gifUrl, String gifPreviewUrl) {
+        this.gifUrl = gifUrl;
+        this.gifPreviewUrl = gifPreviewUrl;
+    }
+
     @PrePersist
     void onCreate() {
         this.createdAt = Instant.now();
@@ -253,6 +268,14 @@ public class PassageAnnotation {
 
     public boolean isSpoiler() {
         return isSpoiler;
+    }
+
+    public String getGifUrl() {
+        return gifUrl;
+    }
+
+    public String getGifPreviewUrl() {
+        return gifPreviewUrl;
     }
 
     public PassageAnnotation getParent() {

@@ -63,6 +63,9 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
       # ── Secret de signature JWT (≥ 32 octets, depuis .env) ───────────
       JWT_SECRET: ${JWT_SECRET}
+      # ── Clé Tenor (GIF dans les commentaires) — FACULTATIVE ──────────
+      # Vide = fonctionnalité désactivée proprement, l'app masque le bouton.
+      TENOR_API_KEY: ${TENOR_API_KEY:-}
       # Adresse PUBLIQUE du site — celle que voient les utilisateurs. Elle sert
       # aux liens des e-mails et à la redirection après connexion Google. Le
       # défaut convient au dev ; sur le serveur, mettre http://<ip-du-serveur>

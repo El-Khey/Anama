@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -15,11 +16,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.novelrealm.dto.ChapterCommentResponse;
+import com.novelrealm.dto.CreateChapterCommentRequest;
+import com.novelrealm.dto.MentionResponse;
 import com.novelrealm.exception.ChapterCommentNotFoundException;
 import com.novelrealm.exception.CommentNotOwnedException;
 import com.novelrealm.exception.CommentRateLimitedException;
+import com.novelrealm.exception.InvalidCommentException;
 import com.novelrealm.model.Chapter;
 import com.novelrealm.model.ChapterComment;
+import com.novelrealm.model.CommentMention;
 import com.novelrealm.model.User;
 import com.novelrealm.repository.ChapterCommentRepository;
 
@@ -30,6 +35,10 @@ import com.novelrealm.repository.ChapterCommentRepository;
  * lieu de laisser le contrôleur s'en charger : un fil est une structure à deux
  * niveaux, et ses réponses sont chargées en une requête pour toute la page. Faire
  * l'assemblage ailleurs rouvrirait la porte au N+1 qu'on cherche à éviter.
+ *
+ * <p>Depuis l'issue #45 : mentions {@code @pseudo} (§2), notifications de réponse
+ * et de mention (§3), GIF joint (§5). Tout part dans la transaction du message —
+ * un message publié sans ses mentions ou sans sa notification, ça n'existe pas.
  */
 @Service
 public class ChapterCommentService {
@@ -44,16 +53,22 @@ public class ChapterCommentService {
     private final ChapterService chapterService;
     private final NovelService novelService;
     private final UserService userService;
+    private final MentionService mentionService;
+    private final NotificationService notificationService;
 
     public ChapterCommentService(
             ChapterCommentRepository commentRepository,
             ChapterService chapterService,
             NovelService novelService,
-            UserService userService) {
+            UserService userService,
+            MentionService mentionService,
+            NotificationService notificationService) {
         this.commentRepository = commentRepository;
         this.chapterService = chapterService;
         this.novelService = novelService;
         this.userService = userService;
+        this.mentionService = mentionService;
+        this.notificationService = notificationService;
     }
 
     /** Tris proposés au lecteur. */
@@ -90,10 +105,20 @@ public class ChapterCommentService {
         Long currentUserId = currentUserId(email);
         Map<Long, List<ChapterComment>> repliesByRoot = loadReplies(roots.getContent());
 
+        // Les mentions de TOUTE la page (racines + réponses) en une requête.
+        List<Long> allIds = Stream.concat(
+                        roots.getContent().stream().map(ChapterComment::getId),
+                        repliesByRoot.values().stream().flatMap(List::stream)
+                                .map(ChapterComment::getId))
+                .toList();
+        Map<Long, List<CommentMention>> mentionsBySource =
+                mentionService.forSources(CommentMention.SourceKind.CHAPTER_COMMENT, allIds);
+
         return roots.map(root -> toResponse(
                 root,
                 currentUserId,
-                repliesByRoot.getOrDefault(root.getId(), List.of())));
+                repliesByRoot.getOrDefault(root.getId(), List.of()),
+                mentionsBySource));
     }
 
     /** Nombre de messages du chapitre, réponses comprises. */
@@ -121,18 +146,56 @@ public class ChapterCommentService {
      * Publie un message. Si {@code parentId} désigne une réponse, le message est
      * re-rattaché à la racine du fil : l'invariant « un seul niveau » est tenu
      * ici, et non par la confiance faite au client.
+     *
+     * <p>Notifications (issue #45, §3) : l'auteur du fil est prévenu d'une
+     * réponse ; les personnes mentionnées sont prévenues d'une mention. Jamais
+     * deux notifications pour la même personne sur le même message — la réponse
+     * l'emporte sur la mention.
      */
     @Transactional
-    public ChapterCommentResponse create(String email, Long chapterId, String body, Long parentId) {
+    public ChapterCommentResponse create(
+            String email, Long chapterId, CreateChapterCommentRequest request) {
         User author = userService.findByEmail(email);
         Chapter chapter = chapterService.findById(chapterId);
         enforceRateLimit(author.getId());
 
-        ChapterComment parent = resolveParent(parentId, chapterId);
-        ChapterComment saved = commentRepository.save(
-                new ChapterComment(chapter, author, parent, body.strip()));
+        String body = request.body() == null ? "" : request.body().strip();
+        String gifUrl = GifService.requireTenorUrl(request.gifUrl());
+        String gifPreviewUrl = GifService.requireTenorUrl(request.gifPreviewUrl());
+        if (body.isEmpty() && gifUrl == null) {
+            throw new InvalidCommentException("Le message ne peut pas être vide");
+        }
 
-        return toResponse(saved, author.getId(), List.of());
+        ChapterComment parent = resolveParent(request.parentId(), chapterId);
+        ChapterComment comment = new ChapterComment(chapter, author, parent, body);
+        if (gifUrl != null) {
+            comment.attachGif(gifUrl, gifPreviewUrl != null ? gifPreviewUrl : gifUrl);
+        }
+        ChapterComment saved = commentRepository.save(comment);
+
+        List<CommentMention> mentions = mentionService.attach(
+                CommentMention.SourceKind.CHAPTER_COMMENT,
+                saved.getId(), author, request.mentionedUserIds(), body);
+
+        // Un parent supprimé (pierre tombale) n'est plus dans la conversation :
+        // il n'a rien demandé, on ne le notifie pas.
+        User threadAuthor = (parent != null && !parent.isDeleted()) ? parent.getUser() : null;
+        if (threadAuthor != null) {
+            notificationService.notifyReply(
+                    threadAuthor, author, chapter,
+                    CommentMention.SourceKind.CHAPTER_COMMENT, saved.getId(), null, body);
+        }
+        for (CommentMention mention : mentions) {
+            User user = mention.getMentioned();
+            if (threadAuthor != null && user.getId().equals(threadAuthor.getId())) {
+                continue; // déjà prévenu par la réponse
+            }
+            notificationService.notifyMention(
+                    user, author, chapter,
+                    CommentMention.SourceKind.CHAPTER_COMMENT, saved.getId(), null, body);
+        }
+
+        return toResponse(saved, author.getId(), List.of(), Map.of(saved.getId(), mentions));
     }
 
     /** Modifie SON message. 403 si ce n'est pas le sien, 404 s'il est supprimé. */
@@ -142,7 +205,11 @@ public class ChapterCommentService {
         ChapterComment comment = findOwned(author, commentId);
         comment.setBody(body.strip());
         // @Transactional → le flush écrit la modification et met à jour updatedAt.
-        return toResponse(comment, author.getId(), loadRepliesOf(comment));
+        // Les mentions ne sont PAS rééditables : en changer après coup notifierait
+        // des gens sur un message qu'ils n'ont jamais reçu tel quel.
+        Map<Long, List<CommentMention>> mentions = mentionService.forSources(
+                CommentMention.SourceKind.CHAPTER_COMMENT, List.of(comment.getId()));
+        return toResponse(comment, author.getId(), loadRepliesOf(comment), mentions);
     }
 
     /**
@@ -226,17 +293,21 @@ public class ChapterCommentService {
      * auteur, mais ses réponses restent lisibles.
      */
     private static ChapterCommentResponse toResponse(
-            ChapterComment comment, Long currentUserId, List<ChapterComment> replies) {
+            ChapterComment comment,
+            Long currentUserId,
+            List<ChapterComment> replies,
+            Map<Long, List<CommentMention>> mentionsBySource) {
 
         List<ChapterCommentResponse> mappedReplies = replies.stream()
-                .map(reply -> toResponse(reply, currentUserId, List.of()))
+                .map(reply -> toResponse(reply, currentUserId, List.of(), mentionsBySource))
                 .toList();
 
         if (comment.isDeleted()) {
             return new ChapterCommentResponse(
                     comment.getId(), null, null, null, null,
                     true, false, false,
-                    comment.getCreatedAt(), comment.getUpdatedAt(), mappedReplies);
+                    comment.getCreatedAt(), comment.getUpdatedAt(),
+                    List.of(), null, null, mappedReplies);
         }
 
         User author = comment.getUser();
@@ -256,6 +327,18 @@ public class ChapterCommentService {
                 edited,
                 comment.getCreatedAt(),
                 comment.getUpdatedAt(),
+                toMentionResponses(mentionsBySource.getOrDefault(comment.getId(), List.of())),
+                comment.getGifUrl(),
+                comment.getGifPreviewUrl(),
                 mappedReplies);
+    }
+
+    private static List<MentionResponse> toMentionResponses(List<CommentMention> mentions) {
+        return mentions.stream()
+                .map(mention -> new MentionResponse(
+                        mention.getMentioned().getId(),
+                        mention.getHandle(),
+                        mention.getMentioned().getPseudo()))
+                .toList();
     }
 }

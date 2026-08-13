@@ -189,6 +189,51 @@ public interface PassageAnnotationRepository extends JpaRepository<PassageAnnota
     boolean existsByUser_IdAndKindAndCreatedAtAfter(
             Long userId, PassageAnnotation.Kind kind, Instant since);
 
+    /** Les identifiants des réponses d'un fil — pour purger leurs mentions avant cascade. */
+    @Query("select a.id from PassageAnnotation a where a.parent.id = :rootId")
+    List<Long> findReplyIds(@Param("rootId") Long rootId);
+
+    // ── « Mes commentaires » (issue #45, §4) ─────────────────────────────────
+
+    /**
+     * MES commentaires de passage, les plus récents d'abord — même stratégie de
+     * projection que {@link #findQuotes} et pour la même raison : surtout ne pas
+     * embarquer le texte des chapitres. L'extrait du passage commenté est résolu
+     * ensuite par le service, chapitre par chapitre distinct, pas ligne par ligne.
+     *
+     * <p>{@code left join a.parent} et non une navigation implicite
+     * {@code a.parent.id} : l'implicite produirait un INNER join et ferait
+     * disparaître tous les messages racines (parent null) du résultat.
+     */
+    @Query("""
+            select a.id            as id,
+                   a.body          as body,
+                   a.gifUrl        as gifUrl,
+                   a.gifPreviewUrl as gifPreviewUrl,
+                   a.isSpoiler     as spoiler,
+                   a.createdAt     as createdAt,
+                   p.id            as parentId,
+                   a.blockIndex    as blockIndex,
+                   a.textHash      as textHash,
+                   c.id            as chapterId,
+                   c.chapterNumber as chapterNumber,
+                   c.title         as chapterTitle,
+                   n.id            as novelId,
+                   n.title         as novelTitle,
+                   n.coverImageUrl as novelCoverUrl
+            from PassageAnnotation a
+              left join a.parent p
+              join a.chapter c
+              join c.novel n
+            where a.user.id = :userId
+              and a.kind = com.novelrealm.model.PassageAnnotation$Kind.COMMENT
+            order by a.createdAt desc
+            """)
+    List<MyPassageCommentView> findMyComments(@Param("userId") Long userId, Pageable pageable);
+
+    /** Total de MES commentaires de passage (pagination du flux fusionné). */
+    long countByUser_IdAndKind(Long userId, PassageAnnotation.Kind kind);
+
     /** Projection d'une carte de la page « Mes citations » (sans le texte du chapitre). */
     interface QuoteView {
         Long getId();
@@ -240,5 +285,38 @@ public interface PassageAnnotationRepository extends JpaRepository<PassageAnnota
         String getTextHash();
 
         long getTotal();
+    }
+
+    /** Une ligne de « Mes commentaires » côté passage — voir {@link #findMyComments}. */
+    interface MyPassageCommentView {
+        Long getId();
+
+        String getBody();
+
+        String getGifUrl();
+
+        String getGifPreviewUrl();
+
+        boolean getSpoiler();
+
+        Instant getCreatedAt();
+
+        Long getParentId();
+
+        int getBlockIndex();
+
+        String getTextHash();
+
+        Long getChapterId();
+
+        int getChapterNumber();
+
+        String getChapterTitle();
+
+        Long getNovelId();
+
+        String getNovelTitle();
+
+        String getNovelCoverUrl();
     }
 }
