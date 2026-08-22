@@ -3,9 +3,11 @@ package com.novelrealm.mobile.data.repository
 import com.novelrealm.mobile.data.remote.ApiResult
 import com.novelrealm.mobile.data.remote.api.PassageApi
 import com.novelrealm.mobile.data.remote.dto.ChapterActivityDto
+import com.novelrealm.mobile.data.remote.dto.CommentReactionsDto
 import com.novelrealm.mobile.data.remote.dto.CreatePassageCommentRequestDto
 import com.novelrealm.mobile.data.remote.dto.PassageCommentDto
 import com.novelrealm.mobile.data.remote.dto.PassageReactionDto
+import com.novelrealm.mobile.data.remote.dto.ReactToCommentRequestDto
 import com.novelrealm.mobile.data.remote.dto.ReactToPassageRequestDto
 import com.novelrealm.mobile.data.remote.safeApiCall
 
@@ -52,23 +54,29 @@ class PassageRepository(private val passageApi: PassageApi) {
         passageApi.react(chapterId, ReactToPassageRequestDto(blockIndex, emoji))
     }
 
+    /**
+     * Pose ou retire une réaction emoji sur un MESSAGE de passage (pas sur le bloc :
+     * voir `react`). Renvoie l'état à jour des réactions du message.
+     */
+    suspend fun reactToComment(annotationId: Long, emoji: String): ApiResult<CommentReactionsDto> =
+        safeApiCall { passageApi.reactToComment(annotationId, ReactToCommentRequestDto(emoji)) }
+
     suspend fun delete(annotationId: Long): ApiResult<Unit> =
         safeApiCall { passageApi.delete(annotationId) }
 
     companion object {
         /**
-         * Jeu d'emojis fermé — miroir exact du back, ordre compris.
+         * Les six emojis de la **barre rapide** de réaction — miroir du back
+         * (`PassageSocialService.ALLOWED_EMOJIS`), ordre compris.
          *
-         * <p>Six exactement : `ReactionRow` en fait six tuiles de largeur égale, un
-         * septième les comprimerait ou imposerait un défilement horizontal.
+         * <p>Ce n'est plus un jeu FERMÉ : les réactions de bloc sont désormais
+         * multi-emoji, le clavier complet s'ouvre via le bouton « + ». Ces six-là ne
+         * sont que le raccourci proposé d'emblée. La barre elle-même est rendue à partir
+         * de `EmojiCatalog.QUICK` (même liste) ; cette constante reste le point de
+         * vérité côté data, alignée sur le back.
          *
          * <p>Le jeu est tourné vers la **lecture** : ❤️ j'adore · 😂 drôle ·
          * 🤯 le retournement · 😭 ça m'a brisé · 🔥 ça envoie · 😱 glaçant.
-         *
-         * <p>⚠️ Le modifier demande trois gestes, jamais un seul :
-         * ici, dans `PassageSocialService.ALLOWED_EMOJIS`, et une migration qui
-         * réécrit les réactions déjà posées — le back ne renvoie les compteurs que
-         * pour les emojis de cette liste.
          */
         val EMOJIS = listOf("❤️", "😂", "🤯", "😭", "🔥", "😱")
 

@@ -55,6 +55,7 @@ public class ChapterCommentService {
     private final UserService userService;
     private final MentionService mentionService;
     private final NotificationService notificationService;
+    private final CommentReactionService reactionService;
 
     public ChapterCommentService(
             ChapterCommentRepository commentRepository,
@@ -62,13 +63,15 @@ public class ChapterCommentService {
             NovelService novelService,
             UserService userService,
             MentionService mentionService,
-            NotificationService notificationService) {
+            NotificationService notificationService,
+            CommentReactionService reactionService) {
         this.commentRepository = commentRepository;
         this.chapterService = chapterService;
         this.novelService = novelService;
         this.userService = userService;
         this.mentionService = mentionService;
         this.notificationService = notificationService;
+        this.reactionService = reactionService;
     }
 
     /** Tris proposés au lecteur. */
@@ -113,12 +116,16 @@ public class ChapterCommentService {
                 .toList();
         Map<Long, List<CommentMention>> mentionsBySource =
                 mentionService.forSources(CommentMention.SourceKind.CHAPTER_COMMENT, allIds);
+        Map<Long, CommentReactionService.Summary> reactionsBySource =
+                reactionService.summarize(
+                        CommentMention.SourceKind.CHAPTER_COMMENT, allIds, currentUserId);
 
         return roots.map(root -> toResponse(
                 root,
                 currentUserId,
                 repliesByRoot.getOrDefault(root.getId(), List.of()),
-                mentionsBySource));
+                mentionsBySource,
+                reactionsBySource));
     }
 
     /** Nombre de messages du chapitre, réponses comprises. */
@@ -195,7 +202,9 @@ public class ChapterCommentService {
                     CommentMention.SourceKind.CHAPTER_COMMENT, saved.getId(), null, body);
         }
 
-        return toResponse(saved, author.getId(), List.of(), Map.of(saved.getId(), mentions));
+        // Un message fraîchement publié ne porte encore aucune réaction.
+        return toResponse(
+                saved, author.getId(), List.of(), Map.of(saved.getId(), mentions), Map.of());
     }
 
     /** Modifie SON message. 403 si ce n'est pas le sien, 404 s'il est supprimé. */
@@ -207,9 +216,16 @@ public class ChapterCommentService {
         // @Transactional → le flush écrit la modification et met à jour updatedAt.
         // Les mentions ne sont PAS rééditables : en changer après coup notifierait
         // des gens sur un message qu'ils n'ont jamais reçu tel quel.
+        List<ChapterComment> replies = loadRepliesOf(comment);
+        List<Long> ids = Stream.concat(
+                        Stream.of(comment.getId()),
+                        replies.stream().map(ChapterComment::getId))
+                .toList();
         Map<Long, List<CommentMention>> mentions = mentionService.forSources(
-                CommentMention.SourceKind.CHAPTER_COMMENT, List.of(comment.getId()));
-        return toResponse(comment, author.getId(), loadRepliesOf(comment), mentions);
+                CommentMention.SourceKind.CHAPTER_COMMENT, ids);
+        Map<Long, CommentReactionService.Summary> reactions = reactionService.summarize(
+                CommentMention.SourceKind.CHAPTER_COMMENT, ids, author.getId());
+        return toResponse(comment, author.getId(), replies, mentions, reactions);
     }
 
     /**
@@ -219,7 +235,13 @@ public class ChapterCommentService {
     @Transactional
     public void delete(String email, Long commentId) {
         User author = userService.findByEmail(email);
-        findOwned(author, commentId).softDelete();
+        ChapterComment comment = findOwned(author, commentId);
+        comment.softDelete();
+        // La ligne survit (pierre tombale) mais son corps ne s'affiche plus : ses
+        // réactions n'ont plus rien à décorer, on les efface. Les mentions, elles,
+        // restent (elles ne notifient plus rien de toute façon).
+        reactionService.deleteFor(
+                CommentMention.SourceKind.CHAPTER_COMMENT, List.of(comment.getId()));
     }
 
     // ── Interne ───────────────────────────────────────────────────────────────
@@ -296,10 +318,12 @@ public class ChapterCommentService {
             ChapterComment comment,
             Long currentUserId,
             List<ChapterComment> replies,
-            Map<Long, List<CommentMention>> mentionsBySource) {
+            Map<Long, List<CommentMention>> mentionsBySource,
+            Map<Long, CommentReactionService.Summary> reactionsBySource) {
 
         List<ChapterCommentResponse> mappedReplies = replies.stream()
-                .map(reply -> toResponse(reply, currentUserId, List.of(), mentionsBySource))
+                .map(reply -> toResponse(
+                        reply, currentUserId, List.of(), mentionsBySource, reactionsBySource))
                 .toList();
 
         if (comment.isDeleted()) {
@@ -307,7 +331,7 @@ public class ChapterCommentService {
                     comment.getId(), null, null, null, null,
                     true, false, false,
                     comment.getCreatedAt(), comment.getUpdatedAt(),
-                    List.of(), null, null, mappedReplies);
+                    List.of(), null, null, List.of(), List.of(), mappedReplies);
         }
 
         User author = comment.getUser();
@@ -315,6 +339,9 @@ public class ChapterCommentService {
         // Une seconde de tolérance : @PrePersist pose createdAt et updatedAt à des
         // instants théoriquement identiques, mais rien ne le garantit au nanoseconde.
         boolean edited = comment.getUpdatedAt().isAfter(comment.getCreatedAt().plusSeconds(1));
+
+        CommentReactionService.Summary reactions = reactionsBySource.getOrDefault(
+                comment.getId(), CommentReactionService.Summary.EMPTY);
 
         return new ChapterCommentResponse(
                 comment.getId(),
@@ -330,6 +357,8 @@ public class ChapterCommentService {
                 toMentionResponses(mentionsBySource.getOrDefault(comment.getId(), List.of())),
                 comment.getGifUrl(),
                 comment.getGifPreviewUrl(),
+                reactions.tallies(),
+                reactions.mine(),
                 mappedReplies);
     }
 

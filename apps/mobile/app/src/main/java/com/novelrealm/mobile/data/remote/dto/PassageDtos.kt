@@ -21,15 +21,16 @@ data class EmojiTallyDto(
 /**
  * L'activité d'un bloc, telle que la marge doit la montrer.
  *
- * `myEmoji` est `null` tant que le lecteur n'a pas réagi — le serveur le calcule à
- * partir du jeton, l'app n'a donc pas besoin de connaître son propre identifiant.
+ * `myReactions` liste les emojis que le lecteur a lui-même posés sur ce bloc (vide s'il
+ * n'a pas réagi) — depuis le passage au multi-emoji, il peut y en avoir plusieurs. Le
+ * serveur le calcule à partir du jeton, l'app n'a pas besoin de son propre identifiant.
  */
 @Serializable
 data class BlockActivityDto(
     val blockIndex: Int = -1,
     val commentCount: Long = 0,
     val reactions: List<EmojiTallyDto> = emptyList(),
-    val myEmoji: String? = null,
+    val myReactions: List<String> = emptyList(),
 )
 
 /**
@@ -65,6 +66,10 @@ data class PassageCommentDto(
     /** GIF joint (issue #45, §5) : `body` peut alors être vide. */
     val gifUrl: String? = null,
     val gifPreviewUrl: String? = null,
+    /** Réactions emoji posées sur ce message (les plus posées d'abord). */
+    val reactions: List<EmojiTallyDto> = emptyList(),
+    /** Les emojis que MOI j'ai posés, pour surligner mes puces. */
+    val myReactions: List<String> = emptyList(),
     val replies: List<PassageCommentDto> = emptyList(),
 )
 
@@ -102,10 +107,10 @@ data class ReactToPassageRequestDto(
     val emoji: String,
 )
 
-/** État d'un bloc après une réaction — de quoi rafraîchir la marge sans tout redemander. */
+/** État d'un bloc après une réaction — de quoi rafraîchir les puces sans tout redemander. */
 @Serializable
 data class PassageReactionDto(
     val blockIndex: Int = -1,
-    val myEmoji: String? = null,
+    val myReactions: List<String> = emptyList(),
     val reactions: List<EmojiTallyDto> = emptyList(),
 )

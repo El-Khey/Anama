@@ -10,13 +10,14 @@ import java.util.List;
  * blocs ; c'est le serveur qui recale, pour que l'app n'ait jamais à connaître les
  * empreintes.
  *
- * <p>{@code myEmoji} vaut {@code null} tant que le lecteur n'a pas réagi. Le donner
- * ici évite un second appel : la barre de réaction doit savoir quel emoji surligner
- * dès l'ouverture.
+ * <p>{@code myReactions} liste les emojis que le lecteur a lui-même posés sur ce bloc
+ * (vide s'il n'a pas réagi) — depuis le passage au multi-emoji, il peut y en avoir
+ * plusieurs. Les donner ici évite un second appel : les puces doivent savoir
+ * lesquelles surligner dès l'ouverture du chapitre.
  */
 public record BlockActivityResponse(
         int blockIndex,
         long commentCount,
         List<EmojiTallyResponse> reactions,
-        String myEmoji
+        List<String> myReactions
 ) {}

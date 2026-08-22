@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FormatAlignJustify
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.outlined.EmojiEmotions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -226,6 +227,14 @@ fun ReaderSettingsScreen(
                         "Les réactions et les citations restent.",
                     checked = reader.inTextComments,
                     onCheckedChange = { v -> store.updateReader { it.copy(inTextComments = v) } },
+                )
+                SettingsSwitchRow(
+                    icon = Icons.Outlined.EmojiEmotions,
+                    title = "Réactions sous les paragraphes",
+                    subtitle = "Petites puces emoji façon Discord, et le double tap " +
+                        "pour réagir. Indépendant des commentaires.",
+                    checked = reader.inTextReactions,
+                    onCheckedChange = { v -> store.updateReader { it.copy(inTextReactions = v) } },
                 )
             }
 

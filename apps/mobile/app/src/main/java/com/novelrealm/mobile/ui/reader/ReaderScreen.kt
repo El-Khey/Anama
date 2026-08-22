@@ -86,6 +86,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -95,9 +96,11 @@ import com.novelrealm.mobile.data.remote.dto.ChapterDetailDto
 import com.novelrealm.mobile.data.remote.dto.ChapterDto
 import com.novelrealm.mobile.data.remote.dto.displayTitle
 import com.novelrealm.mobile.di.ServiceLocator
+import com.novelrealm.mobile.ui.components.EmojiPickerSheet
 import com.novelrealm.mobile.ui.components.EmptyScreen
 import com.novelrealm.mobile.ui.components.GifPickerSheet
 import com.novelrealm.mobile.ui.components.LoadingScreen
+import com.novelrealm.mobile.ui.components.ReactionBarInline
 import com.novelrealm.mobile.ui.components.SheetScrim
 import com.novelrealm.mobile.ui.util.vmFactory
 import kotlinx.coroutines.delay
@@ -414,6 +417,7 @@ fun ReaderScreen(
                         onReplyComment = commentsViewModel::startReply,
                         onEditComment = commentsViewModel::startEdit,
                         onDeleteComment = commentsViewModel::delete,
+                        onReactComment = commentsViewModel::react,
                         onLoadMoreComments = commentsViewModel::loadMore,
                         onRetryComments = commentsViewModel::load,
                         onOpenUser = onOpenUser,
@@ -433,7 +437,9 @@ fun ReaderScreen(
                         activity = passages.activity,
                         orphanedComments = passages.orphanedComments,
                         showInTextComments = readerPrefs.reader.inTextComments,
+                        showInTextReactions = readerPrefs.reader.inTextReactions,
                         onOpenThread = passageViewModel::openThread,
+                        onReactToBlock = passageViewModel::reactToBlock,
                         modifier = Modifier
                             .fillMaxSize()
                             .offset { IntOffset(swipeOffset.roundToInt(), 0) }
@@ -648,13 +654,9 @@ fun ReaderScreen(
             exit = fadeOut() + slideOutVertically { it },
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
-            val block = passages.activity[lastThreadBlock]
             PassageThreadSheet(
                 state = passages,
-                reactions = block?.reactions.orEmpty(),
-                myEmoji = block?.myEmoji,
                 showComments = readerPrefs.reader.inTextComments,
-                onReact = passageViewModel::react,
                 onQuote = {
                     val text = chapterBlocks.getOrNull(lastThreadBlock)
                     passageViewModel.closeThread()
@@ -662,6 +664,7 @@ fun ReaderScreen(
                 },
                 onDelete = passageViewModel::delete,
                 onReply = passageViewModel::startReply,
+                onReactComment = passageViewModel::reactToComment,
                 onCancelReply = passageViewModel::cancelReply,
                 onDraftChange = passageViewModel::setDraft,
                 onToggleSpoiler = passageViewModel::toggleSpoiler,
@@ -669,6 +672,7 @@ fun ReaderScreen(
                 onClose = passageViewModel::closeThread,
                 onOpenUser = onOpenUser,
                 onPickMention = passageViewModel::pickMention,
+                onInsertMention = passageViewModel::insertMentionTrigger,
                 onOpenGifPicker = passageViewModel::openGifPicker,
                 onRemoveGif = passageViewModel::removeGif,
             )
@@ -791,6 +795,7 @@ private fun ChapterBody(
     onReplyComment: (rootId: Long, toUserId: Long?, toPseudo: String?, mention: Boolean) -> Unit,
     onEditComment: (comment: ChapterCommentDto, rootId: Long?) -> Unit,
     onDeleteComment: (comment: ChapterCommentDto, rootId: Long?) -> Unit,
+    onReactComment: (commentId: Long, emoji: String) -> Unit,
     onLoadMoreComments: () -> Unit,
     onRetryComments: () -> Unit,
     onOpenUser: (Long) -> Unit,
@@ -803,7 +808,9 @@ private fun ChapterBody(
     /** Messages de passage dont l'ancre ne retrouve plus son paragraphe (#41, §2). */
     orphanedComments: Long,
     showInTextComments: Boolean,
+    showInTextReactions: Boolean,
     onOpenThread: (index: Int) -> Unit,
+    onReactToBlock: (index: Int, emoji: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Le texte est découpé en paragraphes pour pouvoir appliquer l'écart réglable entre
@@ -825,6 +832,16 @@ private fun ChapterBody(
 
         Spacer(Modifier.height(26.dp))
         val highlightColor = MaterialTheme.colorScheme.primary
+        // Quel paragraphe montre sa barre de réaction rapide (double tap), et lequel a
+        // ouvert le sélecteur complet (bouton « + »). Un seul à la fois : lever l'état
+        // hors de la boucle évite deux barres ouvertes en même temps. Coupé net si le
+        // lecteur désactive les réactions sous les paragraphes.
+        var reactionBarBlock by remember { mutableStateOf<Int?>(null) }
+        var emojiPickerBlock by remember { mutableStateOf<Int?>(null) }
+        if (!showInTextReactions) {
+            reactionBarBlock = null
+            emojiPickerBlock = null
+        }
         paragraphs.forEachIndexed { index, paragraph ->
             if (index > 0) Spacer(Modifier.height(style.paragraphSpacing))
             val highlighted = index == highlightedBlock && highlightAlpha > 0.01f
@@ -858,24 +875,80 @@ private fun ChapterBody(
                         )
                         // Le paragraphe intercepte ses propres gestes : il doit donc
                         // reproduire le tap de la page, sinon les barres ne réagiraient
-                        // plus qu'entre les paragraphes.
-                        .pointerInput(index) {
+                        // plus qu'entre les paragraphes. Le DOUBLE tap ouvre la barre de
+                        // réaction rapide (si les réactions sous les paragraphes sont
+                        // activées) ; le tap simple et l'appui long restent inchangés.
+                        .pointerInput(index, showInTextReactions) {
                             detectTapGestures(
-                                onTap = { onSurfaceTap() },
+                                // Fermeture IMMÉDIATE au contact : `onTap` attendrait la
+                                // fin du délai double-tap (~300 ms) avant de se déclencher,
+                                // d'où la « petite seconde » avant que la barre disparaisse.
+                                // `onPress` tombe dès que le doigt touche, sans attendre.
+                                onPress = {
+                                    if (reactionBarBlock != null) reactionBarBlock = null
+                                },
+                                onTap = {
+                                    // La barre a déjà été fermée par `onPress` le cas
+                                    // échéant ; ici, seulement le geste de page normal.
+                                    onSurfaceTap()
+                                },
+                                onDoubleTap = if (showInTextReactions) {
+                                    { reactionBarBlock = index }
+                                } else {
+                                    null
+                                },
                                 onLongPress = { onSelectBlock(index, paragraph) },
                             )
                         },
                 )
-                activity[index]?.let { blockActivity ->
-                    BlockMark(
-                        activity = blockActivity,
-                        foreground = style.foreground,
-                        showComments = showInTextComments,
-                        onClick = {
-                            if (showInTextComments) onOpenThread(index)
-                            else onSelectBlock(index, paragraph)
-                        },
-                    )
+
+                if (emojiPickerBlock == index) {
+                    Dialog(onDismissRequest = { emojiPickerBlock = null }) {
+                        EmojiPickerSheet(
+                            onPick = { emoji ->
+                                emojiPickerBlock = null
+                                onReactToBlock(index, emoji)
+                            },
+                            onClose = { emojiPickerBlock = null },
+                        )
+                    }
+                }
+
+                // Pile sous le paragraphe : soit la barre de réaction rapide (pendant le
+                // double tap), soit les marques d'activité. La barre PREND LA PLACE des
+                // marques le temps du choix — elle apparaît donc exactement où elles
+                // vivent, sur la ligne sous le paragraphe, et non par-dessus le texte.
+                if (reactionBarBlock == index) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 5.dp),
+                    ) {
+                        ReactionBarInline(
+                            onPick = { emoji ->
+                                reactionBarBlock = null
+                                onReactToBlock(index, emoji)
+                            },
+                            onMore = {
+                                reactionBarBlock = null
+                                emojiPickerBlock = index
+                            },
+                        )
+                    }
+                } else {
+                    activity[index]?.let { blockActivity ->
+                        BlockMark(
+                            activity = blockActivity,
+                            foreground = style.foreground,
+                            showComments = showInTextComments,
+                            showReactions = showInTextReactions,
+                            onClick = {
+                                if (showInTextComments) onOpenThread(index)
+                                else onSelectBlock(index, paragraph)
+                            },
+                            onToggleReaction = { emoji -> onReactToBlock(index, emoji) },
+                        )
+                    }
                 }
             }
         }
@@ -934,6 +1007,7 @@ private fun ChapterBody(
             onReply = onReplyComment,
             onEdit = onEditComment,
             onDelete = onDeleteComment,
+            onReact = onReactComment,
             onLoadMore = onLoadMoreComments,
             onRetry = onRetryComments,
             onOpenUser = onOpenUser,

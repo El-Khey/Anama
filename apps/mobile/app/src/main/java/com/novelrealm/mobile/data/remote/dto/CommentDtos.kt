@@ -28,6 +28,10 @@ data class ChapterCommentDto(
     /** GIF joint (issue #45, §5) : `body` peut alors être vide. */
     val gifUrl: String? = null,
     val gifPreviewUrl: String? = null,
+    /** Réactions emoji posées sur ce message (les plus posées d'abord). */
+    val reactions: List<EmojiTallyDto> = emptyList(),
+    /** Les emojis que MOI j'ai posés, pour surligner mes puces. */
+    val myReactions: List<String> = emptyList(),
     val replies: List<ChapterCommentDto> = emptyList(),
 )
 
@@ -66,4 +70,21 @@ data class UpdateCommentRequestDto(
 @Serializable
 data class CommentCountDto(
     val count: Long = 0,
+)
+
+// Corps de `PUT /api/comments/{id}/reactions` et de la variante passage. Un seul
+// appel pour poser OU retirer : le serveur déduit le geste de l'état courant. On
+// peut cumuler plusieurs emojis sur le même message (façon Discord).
+@Serializable
+data class ReactToCommentRequestDto(
+    val emoji: String,
+)
+
+// Miroir de `CommentReactionsResponse` (back) : l'état des réactions d'un message
+// après un geste, de quoi rafraîchir ses puces sans recharger tout le fil.
+@Serializable
+data class CommentReactionsDto(
+    val commentId: Long,
+    val reactions: List<EmojiTallyDto> = emptyList(),
+    val myReactions: List<String> = emptyList(),
 )

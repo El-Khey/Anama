@@ -1,0 +1,33 @@
+-- =====================================================================
+--  Réactions de bloc en multi-emoji (comme sur Discord).
+--
+--  Jusqu'ici un lecteur n'avait qu'UNE réaction par passage, prise dans un
+--  jeu fermé de six emojis. On aligne les réactions de BLOC sur celles des
+--  COMMENTAIRES : plusieurs emojis par lecteur, choisis au clavier complet.
+--
+--  Le seul verrou à lever est l'index unique partiel qui imposait « une
+--  réaction par lecteur par passage ». Une fois retiré, plusieurs lignes
+--  REACTION du même lecteur sur le même passage deviennent possibles — une
+--  par emoji. La table passage_annotation ne change pas, la colonne emoji
+--  (VARCHAR 16) suffit toujours : un emoji par ligne.
+--
+--  Les réactions DÉJÀ posées sont conservées telles quelles : ce sont des
+--  lignes passage_annotation valides, aucune donnée n'est déplacée ni
+--  réécrite. Le jeu fermé côté serveur disparaît, la validation « c'est
+--  bien un emoji » (EmojiValidation) prend le relais.
+--
+--  À jouer sur une base EXISTANTE :  make migrate
+--
+--  Ré-exécutable sans dommage : DROP INDEX IF EXISTS.
+-- =====================================================================
+
+-- L'unicité « une réaction par (lecteur, chapitre, passage) » n'a plus lieu
+-- d'être : un lecteur peut cumuler 👍 ET 🔥 sur le même paragraphe. On garde
+-- en revanche l'index d'agrégat idx_passage_annotation_chapter_kind_block,
+-- lui, intact — c'est celui que le lecteur interroge.
+DROP INDEX IF EXISTS uq_passage_annotation_one_reaction_per_passage;
+
+-- Rien ne remplace ce verrou d'unicité côté base : poser deux fois LE MÊME
+-- emoji sur le même passage est empêché côté service (le geste est un
+-- bascule — reposer un emoji déjà là le retire), pas par une contrainte.
+-- Un doublon exact resterait bénin pour l'agrégat mais on l'évite à la source.

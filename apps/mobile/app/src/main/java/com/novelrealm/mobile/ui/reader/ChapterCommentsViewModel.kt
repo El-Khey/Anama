@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.novelrealm.mobile.data.remote.ApiResult
 import com.novelrealm.mobile.data.remote.dto.ChapterCommentDto
+import com.novelrealm.mobile.data.remote.dto.CommentReactionsDto
 import com.novelrealm.mobile.data.remote.dto.GifDto
 import com.novelrealm.mobile.data.remote.dto.UserSearchDto
 import com.novelrealm.mobile.data.remote.userMessage
@@ -334,6 +335,25 @@ class ChapterCommentsViewModel(private val chapterId: Long) : ViewModel() {
         }
     }
 
+    /**
+     * Pose ou retire une réaction emoji sur un message. Le serveur tranche entre
+     * ajouter et retirer selon l'état ; on n'anticipe pas l'affichage, on applique sa
+     * réponse (les compteurs et « mes » emojis exacts) au message concerné. Une réaction
+     * n'est pas assez lourde pour justifier un affichage optimiste puis un rollback.
+     */
+    fun react(commentId: Long, emoji: String) {
+        viewModelScope.launch {
+            when (val result = commentRepo.react(commentId, emoji)) {
+                is ApiResult.Success -> _state.update { state ->
+                    state.copy(threads = state.threads.applyReactions(result.data))
+                }
+                is ApiResult.Error -> _state.update {
+                    it.copy(actionError = result.userMessage())
+                }
+            }
+        }
+    }
+
     // ── Interne ───────────────────────────────────────────────────────────────
 
     private suspend fun applyCreate(
@@ -468,5 +488,28 @@ private fun List<ChapterCommentDto>.replaceComment(
             replies = thread.replies.map { if (it.id == updated.id) updated else it },
         )
         else -> thread
+    }
+}
+
+/**
+ * Recopie les réactions renvoyées par le serveur sur le message visé — racine ou
+ * réponse, cherché dans tout l'arbre. La barre de réaction ne connaît que l'id du
+ * message, jamais sa racine : on balaie donc les deux niveaux.
+ */
+private fun List<ChapterCommentDto>.applyReactions(
+    updated: CommentReactionsDto,
+): List<ChapterCommentDto> = map { thread ->
+    when {
+        thread.id == updated.commentId ->
+            thread.copy(reactions = updated.reactions, myReactions = updated.myReactions)
+        else -> thread.copy(
+            replies = thread.replies.map { reply ->
+                if (reply.id == updated.commentId) {
+                    reply.copy(reactions = updated.reactions, myReactions = updated.myReactions)
+                } else {
+                    reply
+                }
+            },
+        )
     }
 }

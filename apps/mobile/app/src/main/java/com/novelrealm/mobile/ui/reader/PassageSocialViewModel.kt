@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.novelrealm.mobile.data.remote.ApiResult
 import com.novelrealm.mobile.data.remote.dto.BlockActivityDto
+import com.novelrealm.mobile.data.remote.dto.CommentReactionsDto
 import com.novelrealm.mobile.data.remote.dto.GifDto
 import com.novelrealm.mobile.data.remote.dto.PassageCommentDto
 import com.novelrealm.mobile.data.remote.dto.UserSearchDto
@@ -51,6 +52,13 @@ data class PassageSocialUiState(
     val gifPickerOpen: Boolean = false,
     /** GIF joint au brouillon (issue #45, §5) — un message peut être un GIF seul. */
     val attachedGif: GifDto? = null,
+    /**
+     * Avatar et pseudo du lecteur connecté, pour l'afficher en tête du composeur (façon
+     * TikTok). Chargés une fois via `getMe()` — l'app ne les garde pas en mémoire par
+     * ailleurs. `null` tant que la réponse n'est pas là : on retombe alors sur l'initiale.
+     */
+    val myAvatarUrl: String? = null,
+    val myPseudo: String? = null,
 ) {
     val canSend: Boolean
         get() = !isSending && (draft.isNotBlank() || attachedGif != null) &&
@@ -89,6 +97,15 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
             val available = gifRepo.isAvailable()
             _state.update { it.copy(gifAvailable = available) }
         }
+        // Avatar du lecteur pour le composeur (façon TikTok). Silencieux en cas d'échec :
+        // pas d'avatar → on affiche l'initiale, ce n'est pas une erreur à signaler.
+        viewModelScope.launch {
+            (userRepo.getMe() as? ApiResult.Success)?.let { me ->
+                _state.update {
+                    it.copy(myAvatarUrl = me.data.avatarUrl, myPseudo = me.data.pseudo)
+                }
+            }
+        }
     }
 
     /**
@@ -111,28 +128,30 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
     // ── Réactions ─────────────────────────────────────────────────────────────
 
     /**
-     * Pose, remplace ou retire l'emoji — le serveur tranche, on affiche sa réponse.
+     * Pose ou retire un emoji sur un bloc — multi-emoji façon Discord, le serveur tranche
+     * entre ajouter et retirer selon l'état, on applique sa réponse.
      *
-     * <p>Le panneau **reste ouvert** : on vient d'y arriver pour lire la discussion, se
-     * le voir fermer parce qu'on a touché un emoji serait une punition.
+     * <p>Ne ferme rien : ce geste vient désormais du double tap sur le paragraphe (barre
+     * de réaction rapide), pas de l'ouverture d'un panneau. L'emoji pleut une fois, mais
+     * seulement quand on POSE (pas au retrait) — fêter un renoncement n'aurait aucun sens,
+     * et enchaîner les retraits ne doit pas déclencher la pluie.
      */
-    fun react(emoji: String) {
-        val blockIndex = _state.value.threadBlock ?: return
+    fun reactToBlock(blockIndex: Int, emoji: String) {
         viewModelScope.launch {
             when (val result = passageRepo.react(chapterId, blockIndex, emoji)) {
                 is ApiResult.Success -> _state.update { current ->
                     val updated = result.data
-                    // Le panneau se referme et l'emoji pleut : le geste est terminé, et
-                    // la pluie remplace le compteur qu'on ne verra plus.
-                    //
-                    // Rien ne pleut si la réaction a été RETIRÉE (le serveur ne renvoie
-                    // alors plus d'emoji à soi) : fêter un renoncement n'aurait aucun sens.
-                    val posted = updated.myEmoji == emoji
+                    // « Posé » = l'emoji est maintenant dans mes réactions alors qu'il n'y
+                    // était pas avant. C'est ce qui distingue un ajout d'un retrait.
+                    val hadBefore = current.activity[blockIndex]
+                        ?.myReactions?.contains(emoji) == true
+                    val posted = !hadBefore && updated.myReactions.contains(emoji)
+
                     val previous = current.activity[blockIndex]
                     val merged = (previous ?: BlockActivityDto(blockIndex = blockIndex)).copy(
                         blockIndex = blockIndex,
                         reactions = updated.reactions,
-                        myEmoji = updated.myEmoji,
+                        myReactions = updated.myReactions,
                     )
                     // Un bloc sans réaction NI commentaire ne porte plus de marque :
                     // le retirer de la table évite d'afficher une pastille vide.
@@ -144,11 +163,7 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
                         }
                     current.copy(
                         activity = activity,
-                        threadBlock = null,
-                        thread = emptyList(),
-                        draft = "",
-                        replyTo = null,
-                        celebration = if (posted) emoji else null,
+                        celebration = if (posted) emoji else current.celebration,
                     )
                 }
                 is ApiResult.Error -> _state.update { it.copy(error = result.userMessage()) }
@@ -227,6 +242,19 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
     fun setDraft(draft: String) {
         _state.update { it.copy(draft = draft) }
         refreshMentionSuggestions(draft)
+    }
+
+    /**
+     * Le bouton « @ » : insère un « @ » à la fin du brouillon (précédé d'une espace s'il
+     * en manque), exactement comme si on l'avait tapé — les suggestions s'ouvrent alors
+     * toutes seules. C'est un raccourci vers un geste qui existe déjà, pas un second
+     * mécanisme de mention.
+     */
+    fun insertMentionTrigger() {
+        val base = _state.value.draft
+        val needsSpace = base.isNotEmpty() && !base.endsWith(" ") && !base.endsWith("\n")
+        val draft = base + (if (needsSpace) " @" else "@")
+        setDraft(draft)
     }
 
     fun toggleSpoiler() = _state.update { it.copy(spoiler = !it.spoiler) }
@@ -360,6 +388,22 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
         }
     }
 
+    /**
+     * Pose ou retire une réaction emoji sur un MESSAGE du fil (pas sur le bloc : voir
+     * [react]). Le serveur tranche entre ajouter et retirer ; on applique sa réponse
+     * — compteurs et « mes » emojis exacts — au message concerné, sans recharger le fil.
+     */
+    fun reactToComment(annotationId: Long, emoji: String) {
+        viewModelScope.launch {
+            when (val result = passageRepo.reactToComment(annotationId, emoji)) {
+                is ApiResult.Success -> _state.update {
+                    it.copy(thread = it.thread.applyReactions(result.data))
+                }
+                is ApiResult.Error -> _state.update { it.copy(error = result.userMessage()) }
+            }
+        }
+    }
+
     fun errorShown() = _state.update { it.copy(error = null) }
 
     /** Recharge le fil sans vider l'affichage : on corrige, on ne fait pas clignoter. */
@@ -385,5 +429,28 @@ private fun Map<Int, BlockActivityDto>.bump(blockIndex: Int, by: Int): Map<Int, 
         this - blockIndex
     } else {
         this + (blockIndex to updated)
+    }
+}
+
+/**
+ * Recopie les réactions renvoyées par le serveur sur le message visé — racine ou
+ * réponse, cherché dans tout le fil. La barre de réaction ne connaît que l'id du
+ * message, jamais sa racine : on balaie donc les deux niveaux.
+ */
+private fun List<PassageCommentDto>.applyReactions(
+    updated: CommentReactionsDto,
+): List<PassageCommentDto> = map { root ->
+    when {
+        root.id == updated.commentId ->
+            root.copy(reactions = updated.reactions, myReactions = updated.myReactions)
+        else -> root.copy(
+            replies = root.replies.map { reply ->
+                if (reply.id == updated.commentId) {
+                    reply.copy(reactions = updated.reactions, myReactions = updated.myReactions)
+                } else {
+                    reply
+                }
+            },
+        )
     }
 }
