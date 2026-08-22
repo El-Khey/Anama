@@ -290,6 +290,33 @@ CREATE TABLE IF NOT EXISTS comment_mention (
 CREATE INDEX IF NOT EXISTS idx_comment_mention_source
     ON comment_mention (source_kind, source_id);
 
+-- ──────────────── Réactions emoji sur les commentaires ───────────────
+-- Le pendant, sur les COMMENTAIRES, des réactions déjà présentes sur les
+-- PASSAGES (passage_annotation.emoji). Plusieurs emojis par lecteur sont
+-- permis (façon Discord) ; poser deux fois le même n'en compte qu'un.
+--
+-- Polymorphe comme comment_mention : source_kind + source_id désignent la
+-- ligne (chapter_comment ou passage_annotation), pas de FK possible — les
+-- services purgent les réactions des commentaires de passage supprimés.
+-- L'emoji est stocké tel quel : le bouton « + » ouvre le clavier complet,
+-- la validation est côté service, pas en base.
+-- Détail complet et rationale : db/migrations/2026-08-22_comment_reactions.sql
+CREATE TABLE IF NOT EXISTS comment_reaction (
+    id           BIGSERIAL PRIMARY KEY,
+    source_kind  VARCHAR(20) NOT NULL
+                 CHECK (source_kind IN ('CHAPTER_COMMENT', 'PASSAGE_COMMENT')),
+    source_id    BIGINT NOT NULL,
+    user_id      BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    emoji        VARCHAR(16) NOT NULL,
+    created_at   TIMESTAMP NOT NULL,
+    CONSTRAINT comment_reaction_once_uq
+        UNIQUE (source_kind, source_id, user_id, emoji)
+);
+
+-- Les réactions d'une page de fils, en une requête.
+CREATE INDEX IF NOT EXISTS idx_comment_reaction_source
+    ON comment_reaction (source_kind, source_id);
+
 -- ──────────────── Notifications (issue #45, §3) ──────────────────────
 -- La cloche : réponses à mes commentaires, mentions. Le CHECK réserve
 -- NEW_CHAPTER pour l'issue #22, qui se greffera ici sans migration.

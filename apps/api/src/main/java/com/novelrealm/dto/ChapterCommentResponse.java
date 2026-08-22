@@ -19,6 +19,12 @@ import java.util.List;
  * texte — le client s'en sert pour les mettre en évidence et les rendre
  * cliquables. {@code gifUrl}/{@code gifPreviewUrl} (issue #45, §5) : le GIF
  * joint, s'il y en a un ; {@code body} peut alors être vide.
+ *
+ * <p>{@code reactions} : les réactions emoji posées sur ce message, décomptées par
+ * emoji (les plus posées d'abord). {@code myReactions} : celles que le lecteur
+ * courant a lui-même posées — le client s'en sert pour surligner ses puces. Un
+ * message en pierre tombale n'en porte aucune (elles ont été purgées à sa
+ * suppression n'aurait pas de sens de réagir à un vide).
  */
 public record ChapterCommentResponse(
         Long id,
@@ -34,5 +40,7 @@ public record ChapterCommentResponse(
         List<MentionResponse> mentions,
         String gifUrl,
         String gifPreviewUrl,
+        List<EmojiTallyResponse> reactions,
+        List<String> myReactions,
         List<ChapterCommentResponse> replies
 ) {}

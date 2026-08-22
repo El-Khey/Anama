@@ -16,6 +16,10 @@ import java.util.List;
  * <p>{@code mentions} (issue #45, §2) : qui est visé par les {@code @pseudo} du
  * texte. {@code gifUrl}/{@code gifPreviewUrl} (issue #45, §5) : le GIF joint ;
  * {@code body} peut alors être vide.
+ *
+ * <p>{@code reactions} : les réactions emoji posées sur ce message, décomptées par
+ * emoji (les plus posées d'abord). {@code myReactions} : celles que le lecteur
+ * courant a lui-même posées, pour surligner ses puces côté client.
  */
 public record PassageCommentResponse(
         Long id,
@@ -29,5 +33,7 @@ public record PassageCommentResponse(
         List<MentionResponse> mentions,
         String gifUrl,
         String gifPreviewUrl,
+        List<EmojiTallyResponse> reactions,
+        List<String> myReactions,
         List<PassageCommentResponse> replies
 ) {}

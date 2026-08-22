@@ -15,10 +15,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.novelrealm.dto.ChapterActivityResponse;
+import com.novelrealm.dto.CommentReactionsResponse;
 import com.novelrealm.dto.CreatePassageCommentRequest;
 import com.novelrealm.dto.PassageCommentResponse;
 import com.novelrealm.dto.PassageReactionResponse;
+import com.novelrealm.dto.ReactToCommentRequest;
 import com.novelrealm.dto.ReactToPassageRequest;
+import com.novelrealm.service.CommentReactionService;
 import com.novelrealm.service.PassageSocialService;
 
 import jakarta.validation.Valid;
@@ -40,9 +43,13 @@ import jakarta.validation.Valid;
 public class PassageSocialController {
 
     private final PassageSocialService passageService;
+    private final CommentReactionService reactionService;
 
-    public PassageSocialController(PassageSocialService passageService) {
+    public PassageSocialController(
+            PassageSocialService passageService,
+            CommentReactionService reactionService) {
         this.passageService = passageService;
+        this.reactionService = reactionService;
     }
 
     /**
@@ -96,6 +103,25 @@ public class PassageSocialController {
                 chapterId,
                 request.blockIndex(),
                 request.emoji()));
+    }
+
+    /**
+     * PUT /api/passages/comments/{annotationId}/reactions — réaction emoji sur un
+     * MESSAGE de passage (à ne pas confondre avec la réaction sur le BLOC ci-dessus).
+     *
+     * <p>Deux choses distinctes portent des emojis sur un passage : le paragraphe
+     * lui-même ({@code PUT .../passages/reactions}, une réaction par lecteur, jeu
+     * fermé) et un message accroché à ce paragraphe (ici, plusieurs emojis par
+     * lecteur, clavier complet) — façon Discord, comme en fin de chapitre. Le geste
+     * est idempotent pour la même raison : présent → retiré, absent → posé.
+     */
+    @PutMapping("/passages/comments/{annotationId}/reactions")
+    public ResponseEntity<CommentReactionsResponse> reactToComment(
+            @PathVariable Long annotationId,
+            @Valid @RequestBody ReactToCommentRequest request,
+            Authentication authentication) {
+        return ResponseEntity.ok(reactionService.toggleOnPassageComment(
+                authentication.getName(), annotationId, request.emoji()));
     }
 
     /** GET /api/passages/emojis — le jeu d'emojis proposé, pour que l'app suive le back. */

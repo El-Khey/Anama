@@ -88,18 +88,21 @@ public class PassageSocialService {
     private final UserService userService;
     private final MentionService mentionService;
     private final NotificationService notificationService;
+    private final CommentReactionService reactionService;
 
     public PassageSocialService(
             PassageAnnotationRepository annotationRepository,
             ChapterService chapterService,
             UserService userService,
             MentionService mentionService,
-            NotificationService notificationService) {
+            NotificationService notificationService,
+            CommentReactionService reactionService) {
         this.annotationRepository = annotationRepository;
         this.chapterService = chapterService;
         this.userService = userService;
         this.mentionService = mentionService;
         this.notificationService = notificationService;
+        this.reactionService = reactionService;
     }
 
     // ── Lecture ───────────────────────────────────────────────────────────────
@@ -177,10 +180,13 @@ public class PassageSocialService {
                 .filter(row -> !row.isRoot())
                 .collect(Collectors.groupingBy(row -> row.getParent().getId()));
 
-        // Les mentions de tout le fil en une requête (issue #45, §2).
+        // Les mentions et les réactions de tout le fil, chacune en une requête.
+        List<Long> ids = rows.stream().map(PassageAnnotation::getId).toList();
         Map<Long, List<CommentMention>> mentionsBySource = mentionService.forSources(
-                CommentMention.SourceKind.PASSAGE_COMMENT,
-                rows.stream().map(PassageAnnotation::getId).toList());
+                CommentMention.SourceKind.PASSAGE_COMMENT, ids);
+        Map<Long, CommentReactionService.Summary> reactionsBySource =
+                reactionService.summarize(
+                        CommentMention.SourceKind.PASSAGE_COMMENT, ids, user.getId());
 
         return rows.stream()
                 .filter(PassageAnnotation::isRoot)
@@ -188,7 +194,8 @@ public class PassageSocialService {
                         root,
                         user.getId(),
                         repliesByRoot.getOrDefault(root.getId(), List.of()),
-                        mentionsBySource))
+                        mentionsBySource,
+                        reactionsBySource))
                 .toList();
     }
 
@@ -262,7 +269,9 @@ public class PassageSocialService {
                     CommentMention.SourceKind.PASSAGE_COMMENT, saved.getId(), blockIndex, cleaned);
         }
 
-        return toResponse(saved, user.getId(), List.of(), Map.of(saved.getId(), mentions));
+        // Un message fraîchement publié ne porte encore aucune réaction.
+        return toResponse(
+                saved, user.getId(), List.of(), Map.of(saved.getId(), mentions), Map.of());
     }
 
     /**
@@ -350,6 +359,9 @@ public class PassageSocialService {
                 doomed.addAll(annotationRepository.findReplyIds(annotation.getId()));
             }
             mentionService.deleteFor(CommentMention.SourceKind.PASSAGE_COMMENT, doomed);
+            // La ligne disparaît vraiment : ses réactions (et celles de ses réponses
+            // emportées en cascade) deviendraient orphelines, on les efface aussi.
+            reactionService.deleteFor(CommentMention.SourceKind.PASSAGE_COMMENT, doomed);
         }
 
         annotationRepository.delete(annotation);
@@ -409,11 +421,13 @@ public class PassageSocialService {
             PassageAnnotation annotation,
             Long currentUserId,
             List<PassageAnnotation> replies,
-            Map<Long, List<CommentMention>> mentionsBySource) {
+            Map<Long, List<CommentMention>> mentionsBySource,
+            Map<Long, CommentReactionService.Summary> reactionsBySource) {
         User author = annotation.getUser();
         List<PassageCommentResponse> mappedReplies = replies.stream()
                 .sorted(Comparator.comparing(PassageAnnotation::getCreatedAt))
-                .map(reply -> toResponse(reply, currentUserId, List.of(), mentionsBySource))
+                .map(reply -> toResponse(
+                        reply, currentUserId, List.of(), mentionsBySource, reactionsBySource))
                 .toList();
         List<MentionResponse> mentions = mentionsBySource
                 .getOrDefault(annotation.getId(), List.of()).stream()
@@ -422,6 +436,8 @@ public class PassageSocialService {
                         mention.getHandle(),
                         mention.getMentioned().getPseudo()))
                 .toList();
+        CommentReactionService.Summary reactions = reactionsBySource.getOrDefault(
+                annotation.getId(), CommentReactionService.Summary.EMPTY);
         return new PassageCommentResponse(
                 annotation.getId(),
                 author.getId(),
@@ -434,6 +450,8 @@ public class PassageSocialService {
                 mentions,
                 annotation.getGifUrl(),
                 annotation.getGifPreviewUrl(),
+                reactions.tallies(),
+                reactions.mine(),
                 mappedReplies);
     }
 

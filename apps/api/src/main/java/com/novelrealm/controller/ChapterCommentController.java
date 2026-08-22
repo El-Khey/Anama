@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -18,10 +19,13 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.novelrealm.dto.ChapterCommentResponse;
 import com.novelrealm.dto.CommentCountResponse;
+import com.novelrealm.dto.CommentReactionsResponse;
 import com.novelrealm.dto.CreateChapterCommentRequest;
 import com.novelrealm.dto.PageResponse;
+import com.novelrealm.dto.ReactToCommentRequest;
 import com.novelrealm.dto.UpdateChapterCommentRequest;
 import com.novelrealm.service.ChapterCommentService;
+import com.novelrealm.service.CommentReactionService;
 
 import jakarta.validation.Valid;
 
@@ -39,9 +43,13 @@ import jakarta.validation.Valid;
 public class ChapterCommentController {
 
     private final ChapterCommentService commentService;
+    private final CommentReactionService reactionService;
 
-    public ChapterCommentController(ChapterCommentService commentService) {
+    public ChapterCommentController(
+            ChapterCommentService commentService,
+            CommentReactionService reactionService) {
         this.commentService = commentService;
+        this.reactionService = reactionService;
     }
 
     /**
@@ -104,6 +112,23 @@ public class ChapterCommentController {
             Authentication authentication) {
         return ResponseEntity.ok(
                 commentService.update(authentication.getName(), commentId, request.body()));
+    }
+
+    /**
+     * PUT /api/comments/{commentId}/reactions — pose ou retire une réaction emoji.
+     *
+     * <p>{@code PUT} et non {@code POST} : le geste est idempotent au sens où l'état
+     * final ne dépend que de l'emoji envoyé et de l'état courant (présent → retiré,
+     * absent → posé), jamais du nombre d'appels. Un double tap ne double pas la
+     * réaction. Réagir à son propre message est permis, comme sur Discord.
+     */
+    @PutMapping("/comments/{commentId}/reactions")
+    public ResponseEntity<CommentReactionsResponse> react(
+            @PathVariable Long commentId,
+            @Valid @RequestBody ReactToCommentRequest request,
+            Authentication authentication) {
+        return ResponseEntity.ok(reactionService.toggleOnChapterComment(
+                authentication.getName(), commentId, request.emoji()));
     }
 
     /** DELETE /api/comments/{commentId} — retire SON message (204). */
