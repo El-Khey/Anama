@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FormatAlignJustify
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.outlined.EmojiEmotions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -211,6 +212,7 @@ fun ReaderSettingsSheet(
             // qu'on ne le fera pas. Même préférence, même compte, deux accès.
             SheetLabel("Discussions")
             Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp),
@@ -220,6 +222,13 @@ fun ReaderSettingsSheet(
                     label = "Commentaires dans le texte",
                     active = prefs.inTextComments,
                     onClick = { onUpdate { it.copy(inTextComments = !it.inTextComments) } },
+                    modifier = Modifier.weight(1f),
+                )
+                ToggleChip(
+                    icon = Icons.Outlined.EmojiEmotions,
+                    label = "Réactions sous les paragraphes",
+                    active = prefs.inTextReactions,
+                    onClick = { onUpdate { it.copy(inTextReactions = !it.inTextReactions) } },
                     modifier = Modifier.weight(1f),
                 )
             }

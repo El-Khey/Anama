@@ -88,11 +88,20 @@ data class ReaderPrefs(
      * Réglage de compte, pas d'appareil : il part dans `preferences` comme les autres,
      * donc le couper sur le téléphone le coupe partout.
      *
-     * Les **réactions ne sont pas concernées** : un emoji en marge tient en un
-     * caractère, il ne rompt pas la lecture comme un fil de discussion. Les citations
-     * non plus — citer est un geste solitaire, pas social.
+     * Les **réactions ont leur propre réglage** ([inTextReactions]) : on peut vouloir
+     * les puces de réaction sous les paragraphes sans les fils de commentaires, ou
+     * l'inverse. Les citations, elles, ne sont concernées par aucun des deux — citer
+     * est un geste solitaire, pas social.
      */
     val inTextComments: Boolean = true,
+    /**
+     * Affiche (ou non) les **réactions emoji sous les paragraphes** : les petites puces
+     * façon Discord, et la barre de réaction rapide qu'ouvre le double tap.
+     *
+     * Réglage de compte comme [inTextComments], et indépendant de lui : couper les
+     * commentaires ne coupe pas les réactions, et réciproquement.
+     */
+    val inTextReactions: Boolean = true,
 ) {
     companion object {
         val DEFAULT = ReaderPrefs()

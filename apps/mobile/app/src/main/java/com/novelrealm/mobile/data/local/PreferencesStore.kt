@@ -188,6 +188,7 @@ class PreferencesStore(
         previousReader["fullscreen"] = JsonPrimitive(current.reader.fullscreen)
         previousReader["margin"] = JsonPrimitive(current.reader.margin)
         previousReader["inTextComments"] = JsonPrimitive(current.reader.inTextComments)
+        previousReader["inTextReactions"] = JsonPrimitive(current.reader.inTextReactions)
 
         val root = lastRemote.toMutableMap()
         root["accent"] = JsonPrimitive(current.accent.id)
@@ -214,6 +215,7 @@ class PreferencesStore(
                 fullscreen = prefs.getBoolean(KEY_FULLSCREEN, d.fullscreen),
                 margin = prefs.getInt(KEY_MARGIN, d.margin),
                 inTextComments = prefs.getBoolean(KEY_IN_TEXT_COMMENTS, d.inTextComments),
+                inTextReactions = prefs.getBoolean(KEY_IN_TEXT_REACTIONS, d.inTextReactions),
             ),
         )
     }
@@ -232,6 +234,7 @@ class PreferencesStore(
             .putBoolean(KEY_FULLSCREEN, value.reader.fullscreen)
             .putInt(KEY_MARGIN, value.reader.margin)
             .putBoolean(KEY_IN_TEXT_COMMENTS, value.reader.inTextComments)
+            .putBoolean(KEY_IN_TEXT_REACTIONS, value.reader.inTextReactions)
             .apply()
     }
 
@@ -251,6 +254,7 @@ class PreferencesStore(
         const val KEY_FULLSCREEN = "reader_fullscreen"
         const val KEY_MARGIN = "reader_margin"
         const val KEY_IN_TEXT_COMMENTS = "reader_in_text_comments"
+        const val KEY_IN_TEXT_REACTIONS = "reader_in_text_reactions"
     }
 }
 
@@ -280,4 +284,5 @@ private fun JsonObject.toReaderPrefs(current: ReaderPrefs): ReaderPrefs = Reader
     fullscreen = bool("fullscreen") ?: current.fullscreen,
     margin = int("margin")?.coerceIn(0, 40) ?: current.margin,
     inTextComments = bool("inTextComments") ?: current.inTextComments,
+    inTextReactions = bool("inTextReactions") ?: current.inTextReactions,
 )

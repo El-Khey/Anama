@@ -46,17 +46,15 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import coil.compose.AsyncImage
 import com.novelrealm.mobile.data.remote.dto.ChapterCommentDto
 import com.novelrealm.mobile.data.remote.dto.MentionDto
 import com.novelrealm.mobile.data.remote.dto.PassageCommentDto
 import com.novelrealm.mobile.data.remote.resolveImageUrl
 import com.novelrealm.mobile.ui.components.CommentGif
-import com.novelrealm.mobile.ui.components.EmojiCatalog
 import com.novelrealm.mobile.ui.components.EmojiPickerSheet
 import com.novelrealm.mobile.ui.components.MentionText
+import com.novelrealm.mobile.ui.components.ReactionBarPopup
 import com.novelrealm.mobile.ui.util.relativeTimeLabel
 
 /**
@@ -597,66 +595,6 @@ private fun ReactionChips(
                     tint = foreground.copy(alpha = 0.55f),
                     modifier = Modifier.size(16.dp),
                 )
-            }
-        }
-    }
-}
-
-/**
- * La barre flottante des six emojis rapides + le bouton « + ». Positionnée en
- * [Popup] au-dessus du message plutôt que dans le flux : elle ne pousse rien et se
- * referme au tap à côté.
- */
-@Composable
-private fun ReactionBarPopup(
-    onPick: (String) -> Unit,
-    onMore: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    Popup(
-        alignment = Alignment.TopCenter,
-        onDismissRequest = onDismiss,
-        properties = PopupProperties(focusable = true),
-    ) {
-        Surface(
-            shape = RoundedCornerShape(50),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 4.dp,
-            shadowElevation = 12.dp,
-            modifier = Modifier.padding(8.dp),
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-            ) {
-                EmojiCatalog.QUICK.forEach { emoji ->
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .clickable { onPick(emoji) },
-                    ) {
-                        Text(text = emoji, fontSize = 22.sp)
-                    }
-                }
-                // Le « + » vers le clavier complet, comme sur Discord.
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f))
-                        .clickable(onClick = onMore),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.AddReaction,
-                        contentDescription = "Plus d'emojis",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
             }
         }
     }

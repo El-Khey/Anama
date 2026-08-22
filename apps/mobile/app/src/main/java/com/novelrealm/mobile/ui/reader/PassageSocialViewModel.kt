@@ -112,28 +112,30 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
     // ── Réactions ─────────────────────────────────────────────────────────────
 
     /**
-     * Pose, remplace ou retire l'emoji — le serveur tranche, on affiche sa réponse.
+     * Pose ou retire un emoji sur un bloc — multi-emoji façon Discord, le serveur tranche
+     * entre ajouter et retirer selon l'état, on applique sa réponse.
      *
-     * <p>Le panneau **reste ouvert** : on vient d'y arriver pour lire la discussion, se
-     * le voir fermer parce qu'on a touché un emoji serait une punition.
+     * <p>Ne ferme rien : ce geste vient désormais du double tap sur le paragraphe (barre
+     * de réaction rapide), pas de l'ouverture d'un panneau. L'emoji pleut une fois, mais
+     * seulement quand on POSE (pas au retrait) — fêter un renoncement n'aurait aucun sens,
+     * et enchaîner les retraits ne doit pas déclencher la pluie.
      */
-    fun react(emoji: String) {
-        val blockIndex = _state.value.threadBlock ?: return
+    fun reactToBlock(blockIndex: Int, emoji: String) {
         viewModelScope.launch {
             when (val result = passageRepo.react(chapterId, blockIndex, emoji)) {
                 is ApiResult.Success -> _state.update { current ->
                     val updated = result.data
-                    // Le panneau se referme et l'emoji pleut : le geste est terminé, et
-                    // la pluie remplace le compteur qu'on ne verra plus.
-                    //
-                    // Rien ne pleut si la réaction a été RETIRÉE (le serveur ne renvoie
-                    // alors plus d'emoji à soi) : fêter un renoncement n'aurait aucun sens.
-                    val posted = updated.myEmoji == emoji
+                    // « Posé » = l'emoji est maintenant dans mes réactions alors qu'il n'y
+                    // était pas avant. C'est ce qui distingue un ajout d'un retrait.
+                    val hadBefore = current.activity[blockIndex]
+                        ?.myReactions?.contains(emoji) == true
+                    val posted = !hadBefore && updated.myReactions.contains(emoji)
+
                     val previous = current.activity[blockIndex]
                     val merged = (previous ?: BlockActivityDto(blockIndex = blockIndex)).copy(
                         blockIndex = blockIndex,
                         reactions = updated.reactions,
-                        myEmoji = updated.myEmoji,
+                        myReactions = updated.myReactions,
                     )
                     // Un bloc sans réaction NI commentaire ne porte plus de marque :
                     // le retirer de la table évite d'afficher une pastille vide.
@@ -145,11 +147,7 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
                         }
                     current.copy(
                         activity = activity,
-                        threadBlock = null,
-                        thread = emptyList(),
-                        draft = "",
-                        replyTo = null,
-                        celebration = if (posted) emoji else null,
+                        celebration = if (posted) emoji else current.celebration,
                     )
                 }
                 is ApiResult.Error -> _state.update { it.copy(error = result.userMessage()) }
