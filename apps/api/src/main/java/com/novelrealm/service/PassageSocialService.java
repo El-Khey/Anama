@@ -54,25 +54,19 @@ import com.novelrealm.repository.PassageAnnotationRepository;
 public class PassageSocialService {
 
     /**
-     * Jeu d'emojis fermé (#41, §4).
+     * Les six emojis de la <b>barre rapide</b> — ceux proposés d'emblée au double tap,
+     * avant même d'ouvrir le clavier complet.
      *
-     * <p>Fermé pour deux raisons : l'agrégat reste trivial — six colonnes, pas un
-     * dictionnaire ouvert — et la marge du lecteur reste lisible. Un sélecteur complet
-     * produirait une longue traîne d'emojis vus une fois, qui n'apprend rien à personne.
+     * <p><b>N'est plus un jeu fermé.</b> Les réactions de bloc sont désormais multi-emoji
+     * et le clavier complet est accessible via le bouton « + » ; ces six-là ne sont donc
+     * que le raccourci, pas la limite. La validation « c'est bien un emoji » vit dans
+     * {@link EmojiValidation}, plus dans cette liste.
      *
-     * <p><b>Doit rester identique à {@code PassageRepository.EMOJIS} côté mobile.</b>
-     * L'ordre compte aussi : c'est lui qui fixe l'ordre d'affichage, pour que les emojis
-     * ne sautent pas de place quand les compteurs changent.
+     * <p><b>Doit rester identique à {@code PassageRepository.EMOJIS} côté mobile</b> —
+     * c'est la barre rapide partagée avec les réactions de commentaire.
      *
      * <p>Le jeu est tourné vers la <b>lecture</b> : ❤️ j'adore · 😂 drôle ·
-     * 🤯 le retournement · 😭 ça m'a brisé · 🔥 ça envoie · 😱 glaçant. Les deux
-     * réactions propres au roman — le retournement et le frisson — manquaient au jeu
-     * d'origine, hérité des réseaux sociaux généralistes.
-     *
-     * <p>⚠️ <b>Changer cette liste ne suffit pas.</b> Les réactions déjà posées portent
-     * l'ancien emoji en base ; il faut une migration qui les réécrive, sinon leurs
-     * compteurs cessent simplement d'être renvoyés. Voir
-     * {@code db/migrations/2026-08-09_reaction_emojis.sql}.
+     * 🤯 le retournement · 😭 ça m'a brisé · 🔥 ça envoie · 😱 glaçant.
      */
     public static final List<String> ALLOWED_EMOJIS = List.of("❤️", "😂", "🤯", "😭", "🔥", "😱");
 
@@ -305,35 +299,31 @@ public class PassageSocialService {
      */
     @Transactional
     public PassageReactionResponse react(
-            String email, Long chapterId, int blockIndex, String emoji) {
+            String email, Long chapterId, int blockIndex, String rawEmoji) {
         User user = userService.findByEmail(email);
         Chapter chapter = chapterService.findById(chapterId);
         List<String> blocks = requireBlock(chapter, blockIndex);
 
-        if (!ALLOWED_EMOJIS.contains(emoji)) {
-            // Refuser plutôt que d'accepter n'importe quel caractère : l'agrégat et la
-            // marge reposent sur un jeu fini, et un client modifié ne doit pas pouvoir
-            // y glisser une chaîne arbitraire.
-            throw new InvalidPassageException("Cet emoji n'est pas proposé");
-        }
+        // Multi-emoji + clavier complet : on ne compare plus à un jeu fermé, mais on
+        // exige que ce soit bien un emoji (EmojiValidation, partagée avec les réactions
+        // de commentaire) — un client modifié ne doit pas glisser du texte arbitraire.
+        String emoji = EmojiValidation.sanitize(rawEmoji)
+                .orElseThrow(() -> new InvalidPassageException("Ce n'est pas un emoji valide"));
 
         String hash = ChapterBlocks.hash(blocks.get(blockIndex));
         Optional<PassageAnnotation> existing =
-                annotationRepository.findMyReaction(chapterId, hash, user.getId());
+                annotationRepository.findMyReaction(chapterId, hash, user.getId(), emoji);
 
+        // Bascule pur : cet emoji déjà posé → on le retire, sinon → on l'ajoute. Plus
+        // de « remplace » — poser un second emoji ne défait plus le premier.
         if (existing.isPresent()) {
-            PassageAnnotation reaction = existing.get();
-            if (emoji.equals(reaction.getEmoji())) {
-                annotationRepository.delete(reaction);
-            } else {
-                reaction.changeEmoji(emoji);
-            }
+            annotationRepository.delete(existing.get());
         } else {
             annotationRepository.save(
                     PassageAnnotation.reaction(chapter, user, blockIndex, hash, emoji));
         }
         // Vidé vers la base avant de recompter : sans ça, l'agrégat renverrait l'état
-        // d'avant le geste et la barre reviendrait en arrière sous le doigt.
+        // d'avant le geste et la puce reviendrait en arrière sous le doigt.
         annotationRepository.flush();
 
         return tallyOf(chapterId, blockIndex, hash, user.getId(), blocks);
@@ -386,7 +376,7 @@ public class PassageSocialService {
             }
             activity.add(tally.getEmoji(), tally.getTotal(), tally.getMine() > 0);
         }
-        return new PassageReactionResponse(blockIndex, activity.myEmoji, activity.tallies());
+        return activity.toReactionResponse(blockIndex);
     }
 
     /** Mémoïse la résolution : une même ancre revient une fois par emoji. */
@@ -458,14 +448,18 @@ public class PassageSocialService {
     /**
      * Accumulateur d'un bloc pendant l'agrégation.
      *
-     * <p>Les emojis sont rangés dans l'ordre de {@link #ALLOWED_EMOJIS} et non par
-     * nombre décroissant : trié par popularité, un emoji changerait de place dès qu'une
-     * réaction arrive, et le lecteur toucherait celui qu'il ne visait pas.
+     * <p>Depuis le passage au multi-emoji, un lecteur peut avoir PLUSIEURS réactions
+     * sur le même bloc : {@code myReactions} collecte donc tous ses emojis, là où
+     * l'ancien {@code myEmoji} n'en gardait qu'un.
+     *
+     * <p>Les emojis ne suivent plus un jeu fermé (le clavier est complet) : ils sont
+     * rangés par nombre décroissant, l'emoji lui-même départageant les égalités —
+     * l'ordre reste donc stable pour un même état, sans clignoter d'un appel à l'autre.
      */
     private static final class BlockActivity {
         private long comments;
         private final Map<String, Long> counts = new LinkedHashMap<>();
-        private String myEmoji;
+        private final List<String> myReactions = new ArrayList<>();
 
         void add(String emoji, long total, boolean mine) {
             if (emoji == null) {
@@ -473,34 +467,26 @@ public class PassageSocialService {
             }
             counts.merge(emoji, total, Long::sum);
             if (mine) {
-                myEmoji = emoji;
+                myReactions.add(emoji);
             }
         }
 
         List<EmojiTallyResponse> tallies() {
-            // Les emojis du jeu d'abord, dans SON ordre — c'est lui qui fixe la
-            // disposition des tuiles.
-            List<EmojiTallyResponse> ordered = new ArrayList<>(
-                    ALLOWED_EMOJIS.stream()
-                            .filter(counts::containsKey)
-                            .map(emoji -> new EmojiTallyResponse(emoji, counts.get(emoji)))
-                            .toList());
-
-            // Puis ceux qui ne sont plus proposés. Ils EXISTENT en base : les taire
-            // ferait fondre des compteurs sans que personne comprenne pourquoi — c'est
-            // exactement ce qui se produisait avant, quand ce filtre était définitif.
-            // En temps normal la liste est vide : la migration qui accompagne tout
-            // changement de jeu réécrit les anciennes réactions.
-            counts.forEach((emoji, total) -> {
-                if (!ALLOWED_EMOJIS.contains(emoji)) {
-                    ordered.add(new EmojiTallyResponse(emoji, total));
-                }
-            });
-            return List.copyOf(ordered);
+            return counts.entrySet().stream()
+                    .sorted(Comparator
+                            .comparingLong((Map.Entry<String, Long> e) -> e.getValue()).reversed()
+                            .thenComparing(Map.Entry::getKey))
+                    .map(e -> new EmojiTallyResponse(e.getKey(), e.getValue()))
+                    .toList();
         }
 
         BlockActivityResponse toResponse(int blockIndex) {
-            return new BlockActivityResponse(blockIndex, comments, tallies(), myEmoji);
+            return new BlockActivityResponse(blockIndex, comments, tallies(), List.copyOf(myReactions));
+        }
+
+        /** L'état des réactions d'un seul bloc, renvoyé après un geste de réaction. */
+        PassageReactionResponse toReactionResponse(int blockIndex) {
+            return new PassageReactionResponse(blockIndex, List.copyOf(myReactions), tallies());
         }
     }
 }

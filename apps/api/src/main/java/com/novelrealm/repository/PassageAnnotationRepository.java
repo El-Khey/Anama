@@ -170,20 +170,24 @@ public interface PassageAnnotationRepository extends JpaRepository<PassageAnnota
             @Param("textHash") String textHash);
 
     /**
-     * Ma réaction sur ce passage, s'il y en a une — il ne peut y en avoir qu'une, la
-     * base le garantit. Repérée par empreinte pour la même raison que le fil.
+     * MA réaction avec CET emoji sur ce passage, s'il y en a une. Depuis le passage au
+     * multi-emoji, un lecteur peut avoir plusieurs réactions sur le même passage (une
+     * par emoji) : la clé de recherche inclut donc l'emoji, et il n'y a toujours qu'une
+     * ligne au plus pour ce quadruplet. Repérée par empreinte, comme le fil.
      */
     @Query("""
             select a from PassageAnnotation a
             where a.chapter.id = :chapterId
               and a.textHash = :textHash
               and a.user.id = :userId
+              and a.emoji = :emoji
               and a.kind = com.novelrealm.model.PassageAnnotation$Kind.REACTION
             """)
     Optional<PassageAnnotation> findMyReaction(
             @Param("chapterId") Long chapterId,
             @Param("textHash") String textHash,
-            @Param("userId") Long userId);
+            @Param("userId") Long userId,
+            @Param("emoji") String emoji);
 
     /** Anti-rafale : ai-je écrit un commentaire de passage tout récemment ? */
     boolean existsByUser_IdAndKindAndCreatedAtAfter(

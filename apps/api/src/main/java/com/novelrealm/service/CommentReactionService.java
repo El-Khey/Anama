@@ -36,13 +36,6 @@ import com.novelrealm.repository.PassageAnnotationRepository;
 @Service
 public class CommentReactionService {
 
-    /**
-     * Longueur maximale d'un emoji, en points de code. Un emoji composé (drapeau,
-     * famille, teinte de peau) tient largement sous cette borne ; au-delà, ce n'est
-     * plus un emoji mais du texte, et on refuse.
-     */
-    private static final int MAX_EMOJI_CODEPOINTS = 8;
-
     private final CommentReactionRepository reactionRepository;
     private final ChapterCommentRepository chapterCommentRepository;
     private final PassageAnnotationRepository annotationRepository;
@@ -162,55 +155,13 @@ public class CommentReactionService {
     }
 
     /**
-     * Accepte un emoji, refuse une chaîne arbitraire. Contrairement aux réactions de
-     * passage (jeu fermé de six), le bouton « + » ouvre le clavier complet : on ne
-     * peut pas comparer à une liste. On borne donc la longueur et on exige que ce
-     * soit fait d'emojis — un client modifié ne doit pas pouvoir stocker du texte
-     * ici, qui s'afficherait comme une fausse réaction pour tout le monde.
+     * Accepte un emoji, refuse une chaîne arbitraire. La validation elle-même vit dans
+     * {@link EmojiValidation} (partagée avec les réactions de bloc) ; ici on ne fait que
+     * traduire un refus dans l'erreur du domaine commentaire.
      */
     private static String sanitizeEmoji(String raw) {
-        String emoji = raw == null ? "" : raw.strip();
-        int[] codePoints = emoji.codePoints().toArray();
-        if (codePoints.length == 0 || codePoints.length > MAX_EMOJI_CODEPOINTS) {
-            throw new InvalidCommentException("Ce n'est pas un emoji valide");
-        }
-        boolean anyEmoji = false;
-        for (int cp : codePoints) {
-            if (isEmojiScalar(cp)) {
-                anyEmoji = true;
-            } else if (!isEmojiModifierOrJoiner(cp)) {
-                // Une lettre, un chiffre, une ponctuation ordinaire : refusé.
-                throw new InvalidCommentException("Ce n'est pas un emoji valide");
-            }
-        }
-        if (!anyEmoji) {
-            throw new InvalidCommentException("Ce n'est pas un emoji valide");
-        }
-        return emoji;
-    }
-
-    /** Un point de code qui, à lui seul, dessine un emoji (pictogrammes, symboles). */
-    private static boolean isEmojiScalar(int cp) {
-        int type = Character.getType(cp);
-        if (type == Character.OTHER_SYMBOL || type == Character.MATH_SYMBOL) {
-            return true;
-        }
-        // Emoji « clavier » construits sur des caractères ASCII (chiffres, #, *)
-        // suivis du sélecteur de variante — le chiffre seul est accepté ici parce
-        // qu'il ne passe QUE s'il est accompagné d'un point de code emoji réel dans
-        // la même séquence (anyEmoji), un « 3 » nu échouant à la fin.
-        return (cp >= 0x1F000 && cp <= 0x1FAFF)   // blocs Supplemental Symbols/Pictographs
-                || (cp >= 0x2600 && cp <= 0x27BF)  // Misc Symbols + Dingbats
-                || (cp >= 0x1F1E6 && cp <= 0x1F1FF); // indicateurs régionaux (drapeaux)
-    }
-
-    /** Modificateurs et liants d'une séquence emoji : teinte, jointure ZWJ, variante. */
-    private static boolean isEmojiModifierOrJoiner(int cp) {
-        return cp == 0x200D                       // Zero Width Joiner
-                || cp == 0xFE0F || cp == 0xFE0E    // sélecteurs de variante
-                || (cp >= 0x1F3FB && cp <= 0x1F3FF) // teintes de peau
-                || (cp >= 0x20E0 && cp <= 0x20FF)  // combinants (keycap enclosant)
-                || (cp >= 0xE0020 && cp <= 0xE007F); // tags (drapeaux régionaux)
+        return EmojiValidation.sanitize(raw)
+                .orElseThrow(() -> new InvalidCommentException("Ce n'est pas un emoji valide"));
     }
 
     /**

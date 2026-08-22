@@ -2,8 +2,6 @@
 
 - faire en sorte que les gif joue tout le temps maintenant 
 
-- reaction sur les commentaires
-
 - ajouter des pouce vert et rouge pour les commentaires
 
 - reproduire la section commentaire de tik tok
