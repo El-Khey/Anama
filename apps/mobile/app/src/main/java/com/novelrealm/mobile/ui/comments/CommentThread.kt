@@ -21,8 +21,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.outlined.AddReaction
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.ThumbDown
+import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -37,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -88,9 +94,6 @@ import com.novelrealm.mobile.ui.util.relativeTimeLabel
  * lecteur a ses propres fonds (sépia, OLED…) et des surfaces Material s'y verraient
  * posées par-dessus la page au lieu d'en faire partie.
  */
-
-/** Réponses montrées d'emblée ; au-delà, elles se replient. */
-private const val VISIBLE_REPLIES = 2
 
 private val RootAvatar = 34.dp
 private val ReplyAvatar = 26.dp
@@ -197,42 +200,46 @@ fun CommentThread(
     // Le repli est propre à chaque fil : déplier l'un ne déplie pas les autres.
     var expanded by remember(root.id) { mutableStateOf(false) }
     val replies = root.replies
-    // Jamais de repli pour une seule réponse cachée : le bouton coûterait la place
-    // qu'il fait gagner.
-    val collapsed = replies.size > VISIBLE_REPLIES + 1 && !expanded
-    val visible = if (collapsed) replies.take(VISIBLE_REPLIES) else replies
 
-    Surface(
-        // Teinte dérivée de la couleur du texte : la carte s'éclaircit sur fond
-        // sombre et s'assombrit sur fond clair, sans décliner une palette par thème.
-        color = foreground.copy(alpha = 0.05f),
-        shape = RoundedCornerShape(18.dp),
-        modifier = modifier.fillMaxWidth(),
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            CommentBody(
-                comment = root,
+    // Plus de carte : les commentaires sont À PLAT façon TikTok, séparés par de
+    // l'espace, pas par des rectangles teintés. Seules les réponses gardent un filet
+    // vertical pour montrer leur rattachement.
+    Column(modifier = modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        CommentBody(
+            comment = root,
+            foreground = foreground,
+            avatarSize = RootAvatar,
+            isRoot = true,
+            replyTo = null,
+            onReply = { onReply(root, root) },
+            onEdit = onEdit?.let { edit -> { edit(root, root) } },
+            onDelete = { onDelete(root, root) },
+            onOpenUser = onOpenUser,
+            onToggleReaction = onToggleReaction?.let { toggle ->
+                { emoji -> toggle(root, root, emoji) }
+            },
+        )
+
+        if (replies.isNotEmpty()) {
+            // Réponses REPLIÉES par défaut, façon TikTok : on ne montre d'abord que
+            // « Afficher N réponses ». N est le nombre RÉEL de réponses. Une fois
+            // déplié, on peut tout refermer.
+            Spacer(Modifier.height(10.dp))
+            RepliesToggle(
+                count = replies.size,
+                expanded = expanded,
                 foreground = foreground,
-                avatarSize = RootAvatar,
-                isRoot = true,
-                replyTo = null,
-                onReply = { onReply(root, root) },
-                onEdit = onEdit?.let { edit -> { edit(root, root) } },
-                onDelete = { onDelete(root, root) },
-                onOpenUser = onOpenUser,
-                onToggleReaction = onToggleReaction?.let { toggle ->
-                    { emoji -> toggle(root, root, emoji) }
-                },
+                onClick = { expanded = !expanded },
             )
 
-            if (visible.isNotEmpty()) {
+            if (expanded) {
                 Spacer(Modifier.height(14.dp))
                 // `IntrinsicSize.Min` donne au filet la hauteur exacte du groupe :
                 // un `fillMaxHeight` seul n'aurait rien à quoi se mesurer ici.
-                Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+                Row(modifier = Modifier.height(IntrinsicSize.Min).padding(start = 44.dp)) {
                     ThreadRail(foreground)
                     Column {
-                        visible.forEachIndexed { index, reply ->
+                        replies.forEachIndexed { index, reply ->
                             if (index > 0) Spacer(Modifier.height(16.dp))
                             CommentBody(
                                 comment = reply,
@@ -249,18 +256,58 @@ fun CommentThread(
                                 },
                             )
                         }
-                        if (collapsed) {
-                            Spacer(Modifier.height(12.dp))
-                            ThreadAction(
-                                label = "Voir les ${replies.size - VISIBLE_REPLIES} autres réponses",
-                                color = MaterialTheme.colorScheme.primary,
-                                onClick = { expanded = true },
-                            )
-                        }
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * « Afficher N réponses » / « Masquer les réponses », avec un chevron qui pivote.
+ * Le trait horizontal à gauche reprend le rail des réponses TikTok.
+ */
+@Composable
+private fun RepliesToggle(
+    count: Int,
+    expanded: Boolean,
+    foreground: Color,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .padding(start = 44.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp, horizontal = 2.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .width(24.dp)
+                .height(1.dp)
+                .background(foreground.copy(alpha = 0.2f)),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = if (expanded) {
+                "Masquer les réponses"
+            } else {
+                "Afficher $count ${if (count > 1) "réponses" else "réponse"}"
+            },
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = foreground.copy(alpha = 0.55f),
+        )
+        Spacer(Modifier.width(2.dp))
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = foreground.copy(alpha = 0.45f),
+            modifier = Modifier
+                .size(18.dp)
+                .rotate(if (expanded) -90f else 90f),
+        )
     }
 }
 
@@ -318,7 +365,10 @@ private fun CommentBody(
     // Un spoiler est MASQUÉ, pas flouté : `Modifier.blur` ne fait rien avant
     // Android 12, et un flou qui ne s'applique pas révèle ce qu'il devait cacher.
     var revealed by remember(comment.id) { mutableStateOf(!comment.spoiler) }
-    // Barre de réaction rapide (appui long) et sélecteur complet (bouton « + »).
+    // Menu contextuel (appui long) : Répondre / Modifier / Supprimer. L'appui long
+    // n'ouvre PLUS la barre d'emojis — celle-ci passe par le « + » des puces.
+    var showMenu by remember(comment.id) { mutableStateOf(false) }
+    // Sélecteur d'emoji complet, ouvert depuis le « + » des puces de réaction.
     var showReactionBar by remember(comment.id) { mutableStateOf(false) }
     var showEmojiPicker by remember(comment.id) { mutableStateOf(false) }
 
@@ -341,17 +391,20 @@ private fun CommentBody(
     }
 
     val userId = comment.userId
-    // L'appui long ouvre la barre de réaction — seulement si la surface les gère et
-    // que le message est révélé (long-presser un spoiler ouvrirait une barre sur un
-    // contenu qu'on n'a pas encore accepté de voir).
-    val reactionGesture = if (onToggleReaction != null && revealed) {
+    // Le geste sur un message : TAP = répondre, APPUI LONG = menu (Répondre /
+    // Modifier / Supprimer). On ne l'attache que si le message est révélé — agir
+    // sur un spoiler qu'on n'a pas accepté de voir n'aurait pas de sens.
+    val messageGesture = if (revealed) {
         Modifier.pointerInput(comment.id) {
-            detectTapGestures(onLongPress = { showReactionBar = true })
+            detectTapGestures(
+                onTap = { onReply() },
+                onLongPress = { showMenu = true },
+            )
         }
     } else {
         Modifier
     }
-    Row(modifier = Modifier.fillMaxWidth().then(reactionGesture)) {
+    Row(modifier = Modifier.fillMaxWidth().then(messageGesture)) {
         Avatar(
             url = comment.avatarUrl,
             pseudo = comment.pseudo,
@@ -361,16 +414,16 @@ private fun CommentBody(
         )
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
+            // Ligne du pseudo, façon TikTok : « auteur ▸ cible » quand la réponse
+            // vise quelqu'un d'autre que la racine. Pseudo en GRIS (l'auteur est en
+            // retrait, c'est le message qui compte) ; le mien reste en accent.
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = comment.pseudo.orEmpty().ifBlank { "Lecteur" },
-                    style = if (isRoot) MaterialTheme.typography.labelLarge
-                    else MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    // Son propre message se repère à la couleur du pseudo — pas à un
-                    // fond teinté, qui salit la carte dès que l'accent est chaud.
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
                     color = if (comment.mine) MaterialTheme.colorScheme.primary
-                    else foreground.copy(alpha = 0.95f),
+                    else foreground.copy(alpha = 0.5f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
@@ -385,28 +438,33 @@ private fun CommentBody(
                             },
                         ),
                 )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = relativeTimeLabel(comment.createdAt) +
-                        if (comment.edited) " · modifié" else "",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = foreground.copy(alpha = 0.4f),
-                    maxLines = 1,
-                )
-            }
-
-            if (replyTo != null) {
-                Spacer(Modifier.height(3.dp))
-                ReplyTargetTag(pseudo = replyTo, foreground = foreground)
+                if (replyTo != null) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = foreground.copy(alpha = 0.4f),
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        text = replyTo,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = foreground.copy(alpha = 0.5f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
             }
 
             if (revealed) {
                 if (comment.body.isNotBlank()) {
-                    Spacer(Modifier.height(5.dp))
+                    Spacer(Modifier.height(3.dp))
+                    // Corps plus présent que le pseudo gris — c'est lui qu'on lit.
                     MentionText(
                         body = comment.body,
                         mentions = comment.mentions,
-                        color = foreground.copy(alpha = 0.85f),
+                        color = foreground.copy(alpha = 0.95f),
                         style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp),
                         onMentionClick = onOpenUser,
                     )
@@ -443,29 +501,35 @@ private fun CommentBody(
             }
 
             Spacer(Modifier.height(6.dp))
-            // « Répondre » seul en accent ; modifier et supprimer restent gris.
-            // Trois libellés colorés côte à côte pesaient plus lourd que le message
-            // qu'ils accompagnent.
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                ThreadAction(
-                    label = "Répondre",
-                    color = MaterialTheme.colorScheme.primary,
-                    onClick = onReply,
+            // Ligne d'actions façon TikTok : date à GAUCHE, pouces levé/baissé à
+            // DROITE. Plus de « Répondre / Modifier / Supprimer » en toutes lettres :
+            // le TAP sur le message répond, l'APPUI LONG ouvre le menu. Les pouces
+            // sont DÉCORATIFS — pas de compteur, pas de logique (like/dislike à venir).
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = relativeTimeLabel(comment.createdAt) +
+                        if (comment.edited) " · modifié" else "",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = foreground.copy(alpha = 0.4f),
+                    maxLines = 1,
                 )
-                if (comment.mine && onEdit != null) {
-                    ThreadAction(
-                        label = "Modifier",
-                        color = foreground.copy(alpha = 0.5f),
-                        onClick = onEdit,
-                    )
-                }
-                if (comment.mine) {
-                    ThreadAction(
-                        label = "Supprimer",
-                        color = foreground.copy(alpha = 0.5f),
-                        onClick = { confirmDelete = true },
-                    )
-                }
+                Spacer(Modifier.weight(1f))
+                Icon(
+                    imageVector = Icons.Outlined.ThumbUp,
+                    contentDescription = "J'aime (bientôt)",
+                    tint = foreground.copy(alpha = 0.4f),
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(Modifier.width(16.dp))
+                Icon(
+                    imageVector = Icons.Outlined.ThumbDown,
+                    contentDescription = "Je n'aime pas (bientôt)",
+                    tint = foreground.copy(alpha = 0.4f),
+                    modifier = Modifier.size(16.dp),
+                )
             }
         }
     }
@@ -498,8 +562,22 @@ private fun CommentBody(
         )
     }
 
-    // La barre de réaction rapide, en surimpression (appui long). Un tap dessus pose
-    // l'emoji et referme ; le bouton « + » bascule vers le sélecteur complet.
+    // Le menu contextuel (appui long) : Répondre pour tous, Modifier / Supprimer si
+    // le message est le mien. Un petit popup posé au centre, façon iOS/Telegram.
+    if (showMenu) {
+        CommentActionMenu(
+            canEdit = comment.mine && onEdit != null,
+            canDelete = comment.mine,
+            foreground = foreground,
+            onReply = { showMenu = false; onReply() },
+            onEdit = { showMenu = false; onEdit?.invoke() },
+            onDelete = { showMenu = false; confirmDelete = true },
+            onDismiss = { showMenu = false },
+        )
+    }
+
+    // La barre de réaction rapide, en surimpression (via le « + » des puces). Un tap
+    // dessus pose l'emoji et referme ; le bouton « + » bascule vers le sélecteur complet.
     if (showReactionBar && onToggleReaction != null) {
         ReactionBarPopup(
             onPick = { emoji ->
@@ -600,23 +678,83 @@ private fun ReactionChips(
     }
 }
 
-/** « ↳ en réponse à Untel » — l'étiquette qui dit à qui l'on parle dans un fil plat. */
+/**
+ * Le menu contextuel d'un message (appui long), façon Telegram/iOS : un petit
+ * panneau flottant centré, fond assombri pour isoler le message visé. Répondre est
+ * toujours là ; Modifier / Supprimer n'apparaissent que sur mes messages.
+ */
 @Composable
-private fun ReplyTargetTag(pseudo: String, foreground: Color) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+private fun CommentActionMenu(
+    canEdit: Boolean,
+    canDelete: Boolean,
+    foreground: Color,
+    onReply: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 3.dp,
+            shadowElevation = 8.dp,
+            modifier = Modifier.width(220.dp),
+        ) {
+            Column(modifier = Modifier.padding(vertical = 6.dp)) {
+                MenuRow(
+                    icon = Icons.AutoMirrored.Filled.Reply,
+                    label = "Répondre",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    onClick = onReply,
+                )
+                if (canEdit) {
+                    MenuRow(
+                        icon = Icons.Outlined.Edit,
+                        label = "Modifier",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        onClick = onEdit,
+                    )
+                }
+                if (canDelete) {
+                    MenuRow(
+                        icon = Icons.Outlined.Delete,
+                        label = "Supprimer",
+                        tint = MaterialTheme.colorScheme.error,
+                        onClick = onDelete,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MenuRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    tint: Color,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 13.dp),
+    ) {
         Icon(
-            imageVector = Icons.AutoMirrored.Filled.Reply,
+            imageVector = icon,
             contentDescription = null,
-            tint = foreground.copy(alpha = 0.45f),
-            modifier = Modifier.size(12.dp),
+            tint = tint,
+            modifier = Modifier.size(20.dp),
         )
-        Spacer(Modifier.width(5.dp))
+        Spacer(Modifier.width(14.dp))
         Text(
-            text = "en réponse à $pseudo",
-            style = MaterialTheme.typography.labelSmall,
-            color = foreground.copy(alpha = 0.5f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = tint,
         )
     }
 }
@@ -645,20 +783,6 @@ private fun SpoilerVeil(foreground: Color, onReveal: () -> Unit) {
             color = foreground.copy(alpha = 0.6f),
         )
     }
-}
-
-@Composable
-private fun ThreadAction(label: String, color: Color, onClick: () -> Unit) {
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelMedium,
-        fontWeight = FontWeight.SemiBold,
-        color = color,
-        modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .clickable(onClick = onClick)
-            .padding(vertical = 4.dp, horizontal = 2.dp),
-    )
 }
 
 @Composable

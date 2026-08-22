@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -36,6 +37,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FormatQuote
+import androidx.compose.material.icons.outlined.AlternateEmail
+import androidx.compose.material.icons.outlined.GifBox
 import androidx.compose.material.icons.outlined.ModeComment
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -54,13 +57,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.novelrealm.mobile.data.remote.dto.BlockActivityDto
 import com.novelrealm.mobile.data.remote.dto.PassageCommentDto
 import com.novelrealm.mobile.data.remote.dto.UserSearchDto
+import com.novelrealm.mobile.data.remote.resolveImageUrl
 import com.novelrealm.mobile.data.repository.PassageRepository
 import com.novelrealm.mobile.ui.comments.CommentThread
 import com.novelrealm.mobile.ui.comments.toThreadComment
@@ -248,17 +254,21 @@ fun PassageThreadSheet(
     onClose: () -> Unit,
     onOpenUser: (Long) -> Unit,
     onPickMention: (UserSearchDto) -> Unit,
+    onInsertMention: () -> Unit,
     onOpenGifPicker: () -> Unit,
     onRemoveGif: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         tonalElevation = 6.dp,
         shadowElevation = 20.dp,
         modifier = modifier
+            // Feuille haute façon TikTok : ~70 % de l'écran, plutôt que de s'ajuster au
+            // contenu (elle était minuscule). Le fil prend toute la place disponible.
             .fillMaxWidth()
+            .fillMaxHeight(0.7f)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -267,74 +277,74 @@ fun PassageThreadSheet(
     ) {
         Column(
             modifier = Modifier
-                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
-                .padding(bottom = 10.dp),
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)),
         ) {
-            // Poignée centrée, fermeture à droite : la croix ne doit pas décaler la
-            // poignée du milieu, elle est donc posée PAR-DESSUS et non à côté.
-            Box(modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+            // En-tête TikTok : poignée, titre « N commentaires » CENTRÉ, croix à droite.
+            Box(modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {
                 Box(
                     modifier = Modifier
-                        .align(Alignment.Center)
+                        .align(Alignment.TopCenter)
                         .size(width = 36.dp, height = 4.dp)
                         .clip(RoundedCornerShape(50))
                         .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)),
                 )
-                Icon(
-                    imageVector = Icons.Filled.Close,
-                    contentDescription = "Fermer",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                Text(
+                    text = if (showComments) commentCountLabel(state.thread.size)
+                    else "Ce passage",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(top = 12.dp),
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .padding(end = 8.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onClose)
-                        .padding(7.dp)
-                        .size(17.dp),
-                )
+                        .padding(top = 10.dp, end = 6.dp),
+                ) {
+                    // « Citer » : geste rare, en petite icône dans l'en-tête.
+                    Icon(
+                        imageVector = Icons.Filled.FormatQuote,
+                        contentDescription = "Citer",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .clickable(onClick = onQuote)
+                            .padding(7.dp)
+                            .size(19.dp),
+                    )
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Fermer",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .clickable(onClick = onClose)
+                            .padding(7.dp)
+                            .size(19.dp),
+                    )
+                }
             }
-
-            // Les réactions ne vivent plus ici : elles se posent désormais AU DOUBLE TAP
-            // sur le paragraphe, et s'affichent en puces sous le texte (façon Discord).
-            // La feuille est donc consacrée aux commentaires et à la citation.
-            Spacer(Modifier.height(14.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            Spacer(Modifier.height(10.dp))
+            // Filet de séparation sous l'en-tête, comme TikTok.
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 20.dp, end = 12.dp, top = 2.dp, bottom = 2.dp),
-            ) {
-                Text(
-                    text = if (showComments) commentCountLabel(state.thread.size).uppercase()
-                    else "CE PASSAGE",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.5.sp,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.weight(1f),
-                )
-                // « Citer » relégué en petit : geste rare et solitaire, il n'a pas à
-                // disputer la place à la conversation.
-                GhostAction(icon = Icons.Filled.FormatQuote, label = "Citer", onClick = onQuote)
-            }
+                    .height(0.5.dp)
+                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
+            )
 
             if (showComments) {
                 Column(
                     modifier = Modifier
-                        // `weight(fill = false)` : le fil prend ce qui RESTE, pas ce qu'il
-                        // veut. Une Column mesure d'abord les enfants sans poids, dans
-                        // l'ordre, chacun avec l'espace encore libre — le fil passait donc
-                        // avant le composeur et lui laissait les miettes. Dès que le
-                        // clavier montait (safeDrawing ajoute sa hauteur en marge basse),
-                        // il ne restait plus rien : le champ s'aplatissait sous son
-                        // `heightIn(min = 46.dp)`, et le bouton d'envoi devenait un ovale,
-                        // `CircleShape` appliqué à une boîte écrasée n'étant plus un rond.
-                        //
-                        // Avec un poids, le fil est mesuré en DERNIER : le composeur garde
-                        // sa taille, et la discussion se contente du reste — au pire elle
-                        // défile, ce qu'elle sait déjà faire.
-                        .weight(1f, fill = false)
-                        .heightIn(max = 260.dp)
+                        // La feuille a maintenant une hauteur FIXE (70 %) : le fil prend
+                        // tout l'espace entre l'en-tête et le composeur (`weight(1f)`), et
+                        // défile à l'intérieur. Le composeur, sans poids, garde sa taille —
+                        // c'est ce qui l'empêchait de s'aplatir quand le clavier monte.
+                        .weight(1f)
+                        .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
@@ -410,6 +420,7 @@ fun PassageThreadSheet(
                     onSend = onSend,
                     onCancelReply = onCancelReply,
                     onPickMention = onPickMention,
+                    onInsertMention = onInsertMention,
                     onOpenGifPicker = onOpenGifPicker,
                     onRemoveGif = onRemoveGif,
                 )
@@ -425,33 +436,6 @@ private fun commentCountLabel(count: Int): String = when (count) {
     1 -> "1 commentaire"
     else -> "$count commentaires"
 }
-
-/** Action discrète de l'en-tête : icône + libellé, sans cadre. */
-@Composable
-private fun GhostAction(icon: ImageVector, label: String, onClick: () -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(15.dp),
-        )
-        Spacer(Modifier.width(5.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary,
-        )
-    }
-}
-
 
 /** Petite pastille d'option de la barre de saisie. */
 @Composable
@@ -489,6 +473,7 @@ private fun PassageComposer(
     onSend: () -> Unit,
     onCancelReply: () -> Unit,
     onPickMention: (UserSearchDto) -> Unit,
+    onInsertMention: () -> Unit,
     onOpenGifPicker: () -> Unit,
     onRemoveGif: () -> Unit,
 ) {
@@ -566,40 +551,69 @@ private fun PassageComposer(
             }
         }
         Row(verticalAlignment = Alignment.Bottom) {
-            // Un GIF ne se joint qu'une fois : le bouton disparaît dès qu'un est là.
-            if (state.gifAvailable && state.attachedGif == null) {
-                GifButton(onClick = onOpenGifPicker)
-                Spacer(Modifier.width(8.dp))
-            }
+            // Avatar du lecteur en tête, comme TikTok. L'app ne garde pas l'avatar en
+            // mémoire : il est chargé une fois par le ViewModel (`getMe()`), et retombe
+            // sur l'initiale du pseudo tant qu'il n'est pas là.
+            ComposerAvatar(
+                avatarUrl = state.myAvatarUrl,
+                pseudo = state.myPseudo,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+
             Surface(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f),
                 shape = RoundedCornerShape(23.dp),
                 modifier = Modifier.weight(1f).heightIn(min = 46.dp, max = 120.dp),
             ) {
-                Box(
-                    contentAlignment = Alignment.CenterStart,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                ) {
-                    if (state.draft.isEmpty()) {
-                        Text(
-                            text = if (state.replyTo != null) "Ta réponse…"
-                            else "Ce que ce passage t'inspire…",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Box(
+                        contentAlignment = Alignment.CenterStart,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 6.dp),
+                    ) {
+                        if (state.draft.isEmpty()) {
+                            Text(
+                                text = if (state.replyTo != null) "Ta réponse…"
+                                else "Ajouter un commentaire…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            )
+                        }
+                        BasicTextField(
+                            value = state.draft,
+                            onValueChange = {
+                                if (it.length <= PassageRepository.MAX_BODY_LENGTH) onDraftChange(it)
+                            },
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                color = MaterialTheme.colorScheme.onSurface,
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            maxLines = 4,
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                    BasicTextField(
-                        value = state.draft,
-                        onValueChange = {
-                            if (it.length <= PassageRepository.MAX_BODY_LENGTH) onDraftChange(it)
-                        },
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(
-                            color = MaterialTheme.colorScheme.onSurface,
-                        ),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                        maxLines = 4,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                    // Les icônes DANS le champ, à droite (schéma TikTok) : GIF et @.
+                    // Pas d'image ni de cadeau — on ne les gère pas.
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(end = 8.dp, bottom = 11.dp),
+                    ) {
+                        // Un GIF ne se joint qu'une fois : l'icône disparaît dès qu'un est là.
+                        if (state.gifAvailable && state.attachedGif == null) {
+                            ComposerIcon(
+                                icon = Icons.Outlined.GifBox,
+                                description = "Ajouter un GIF",
+                                onClick = onOpenGifPicker,
+                            )
+                        }
+                        ComposerIcon(
+                            icon = Icons.Outlined.AlternateEmail,
+                            description = "Mentionner quelqu'un",
+                            onClick = onInsertMention,
+                        )
+                    }
                 }
             }
 
@@ -632,6 +646,51 @@ private fun PassageComposer(
                     )
                 }
             }
+        }
+    }
+}
+
+/** Une icône d'action DANS le champ de saisie (GIF, @) — discrète, cliquable. */
+@Composable
+private fun ComposerIcon(icon: ImageVector, description: String, onClick: () -> Unit) {
+    Icon(
+        imageVector = icon,
+        contentDescription = description,
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .clip(CircleShape)
+            .clickable(onClick = onClick)
+            .padding(4.dp)
+            .size(21.dp),
+    )
+}
+
+/** L'avatar du lecteur en tête du composeur — vrai avatar, ou initiale du pseudo. */
+@Composable
+private fun ComposerAvatar(avatarUrl: String?, pseudo: String?, modifier: Modifier = Modifier) {
+    val resolved = resolveImageUrl(avatarUrl)
+    val size = 34.dp
+    if (resolved != null) {
+        AsyncImage(
+            model = resolved,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = modifier.size(size).clip(CircleShape),
+        )
+    } else {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = modifier
+                .size(size)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)),
+        ) {
+            Text(
+                text = pseudo.orEmpty().take(1).uppercase().ifBlank { "?" },
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+            )
         }
     }
 }

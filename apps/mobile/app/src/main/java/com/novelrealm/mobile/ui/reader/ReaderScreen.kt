@@ -672,6 +672,7 @@ fun ReaderScreen(
                 onClose = passageViewModel::closeThread,
                 onOpenUser = onOpenUser,
                 onPickMention = passageViewModel::pickMention,
+                onInsertMention = passageViewModel::insertMentionTrigger,
                 onOpenGifPicker = passageViewModel::openGifPicker,
                 onRemoveGif = passageViewModel::removeGif,
             )

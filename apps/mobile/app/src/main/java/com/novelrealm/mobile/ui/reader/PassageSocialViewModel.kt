@@ -52,6 +52,13 @@ data class PassageSocialUiState(
     val gifPickerOpen: Boolean = false,
     /** GIF joint au brouillon (issue #45, §5) — un message peut être un GIF seul. */
     val attachedGif: GifDto? = null,
+    /**
+     * Avatar et pseudo du lecteur connecté, pour l'afficher en tête du composeur (façon
+     * TikTok). Chargés une fois via `getMe()` — l'app ne les garde pas en mémoire par
+     * ailleurs. `null` tant que la réponse n'est pas là : on retombe alors sur l'initiale.
+     */
+    val myAvatarUrl: String? = null,
+    val myPseudo: String? = null,
 ) {
     val canSend: Boolean
         get() = !isSending && (draft.isNotBlank() || attachedGif != null) &&
@@ -89,6 +96,15 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
         viewModelScope.launch {
             val available = gifRepo.isAvailable()
             _state.update { it.copy(gifAvailable = available) }
+        }
+        // Avatar du lecteur pour le composeur (façon TikTok). Silencieux en cas d'échec :
+        // pas d'avatar → on affiche l'initiale, ce n'est pas une erreur à signaler.
+        viewModelScope.launch {
+            (userRepo.getMe() as? ApiResult.Success)?.let { me ->
+                _state.update {
+                    it.copy(myAvatarUrl = me.data.avatarUrl, myPseudo = me.data.pseudo)
+                }
+            }
         }
     }
 
@@ -226,6 +242,19 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
     fun setDraft(draft: String) {
         _state.update { it.copy(draft = draft) }
         refreshMentionSuggestions(draft)
+    }
+
+    /**
+     * Le bouton « @ » : insère un « @ » à la fin du brouillon (précédé d'une espace s'il
+     * en manque), exactement comme si on l'avait tapé — les suggestions s'ouvrent alors
+     * toutes seules. C'est un raccourci vers un geste qui existe déjà, pas un second
+     * mécanisme de mention.
+     */
+    fun insertMentionTrigger() {
+        val base = _state.value.draft
+        val needsSpace = base.isNotEmpty() && !base.endsWith(" ") && !base.endsWith("\n")
+        val draft = base + (if (needsSpace) " @" else "@")
+        setDraft(draft)
     }
 
     fun toggleSpoiler() = _state.update { it.copy(spoiler = !it.spoiler) }
