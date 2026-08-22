@@ -174,6 +174,7 @@ fun PassageThreadSheet(
     onQuote: () -> Unit,
     onDelete: (PassageCommentDto) -> Unit,
     onReply: (PassageCommentDto) -> Unit,
+    onReactComment: (annotationId: Long, emoji: String) -> Unit,
     onCancelReply: () -> Unit,
     onDraftChange: (String) -> Unit,
     onToggleSpoiler: () -> Unit,
@@ -306,6 +307,9 @@ fun PassageThreadSheet(
                                 root = remember(root) { root.toThreadComment() },
                                 onReply = { target, _ -> byId[target.id]?.let(onReply) },
                                 onDelete = { comment, _ -> byId[comment.id]?.let(onDelete) },
+                                onToggleReaction = { comment, _, emoji ->
+                                    onReactComment(comment.id, emoji)
+                                },
                                 onOpenUser = onOpenUser,
                                 modifier = Modifier.padding(bottom = 10.dp),
                             )

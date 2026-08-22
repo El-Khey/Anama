@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.novelrealm.mobile.data.remote.ApiResult
 import com.novelrealm.mobile.data.remote.dto.BlockActivityDto
+import com.novelrealm.mobile.data.remote.dto.CommentReactionsDto
 import com.novelrealm.mobile.data.remote.dto.GifDto
 import com.novelrealm.mobile.data.remote.dto.PassageCommentDto
 import com.novelrealm.mobile.data.remote.dto.UserSearchDto
@@ -360,6 +361,22 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
         }
     }
 
+    /**
+     * Pose ou retire une réaction emoji sur un MESSAGE du fil (pas sur le bloc : voir
+     * [react]). Le serveur tranche entre ajouter et retirer ; on applique sa réponse
+     * — compteurs et « mes » emojis exacts — au message concerné, sans recharger le fil.
+     */
+    fun reactToComment(annotationId: Long, emoji: String) {
+        viewModelScope.launch {
+            when (val result = passageRepo.reactToComment(annotationId, emoji)) {
+                is ApiResult.Success -> _state.update {
+                    it.copy(thread = it.thread.applyReactions(result.data))
+                }
+                is ApiResult.Error -> _state.update { it.copy(error = result.userMessage()) }
+            }
+        }
+    }
+
     fun errorShown() = _state.update { it.copy(error = null) }
 
     /** Recharge le fil sans vider l'affichage : on corrige, on ne fait pas clignoter. */
@@ -385,5 +402,28 @@ private fun Map<Int, BlockActivityDto>.bump(blockIndex: Int, by: Int): Map<Int, 
         this - blockIndex
     } else {
         this + (blockIndex to updated)
+    }
+}
+
+/**
+ * Recopie les réactions renvoyées par le serveur sur le message visé — racine ou
+ * réponse, cherché dans tout le fil. La barre de réaction ne connaît que l'id du
+ * message, jamais sa racine : on balaie donc les deux niveaux.
+ */
+private fun List<PassageCommentDto>.applyReactions(
+    updated: CommentReactionsDto,
+): List<PassageCommentDto> = map { root ->
+    when {
+        root.id == updated.commentId ->
+            root.copy(reactions = updated.reactions, myReactions = updated.myReactions)
+        else -> root.copy(
+            replies = root.replies.map { reply ->
+                if (reply.id == updated.commentId) {
+                    reply.copy(reactions = updated.reactions, myReactions = updated.myReactions)
+                } else {
+                    reply
+                }
+            },
+        )
     }
 }

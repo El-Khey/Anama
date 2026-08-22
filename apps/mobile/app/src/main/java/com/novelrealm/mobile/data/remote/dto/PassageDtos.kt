@@ -65,6 +65,10 @@ data class PassageCommentDto(
     /** GIF joint (issue #45, §5) : `body` peut alors être vide. */
     val gifUrl: String? = null,
     val gifPreviewUrl: String? = null,
+    /** Réactions emoji posées sur ce message (les plus posées d'abord). */
+    val reactions: List<EmojiTallyDto> = emptyList(),
+    /** Les emojis que MOI j'ai posés, pour surligner mes puces. */
+    val myReactions: List<String> = emptyList(),
     val replies: List<PassageCommentDto> = emptyList(),
 )
 

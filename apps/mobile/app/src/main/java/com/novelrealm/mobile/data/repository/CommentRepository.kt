@@ -3,8 +3,10 @@ package com.novelrealm.mobile.data.repository
 import com.novelrealm.mobile.data.remote.ApiResult
 import com.novelrealm.mobile.data.remote.api.CommentApi
 import com.novelrealm.mobile.data.remote.dto.ChapterCommentDto
+import com.novelrealm.mobile.data.remote.dto.CommentReactionsDto
 import com.novelrealm.mobile.data.remote.dto.CreateCommentRequestDto
 import com.novelrealm.mobile.data.remote.dto.PageDto
+import com.novelrealm.mobile.data.remote.dto.ReactToCommentRequestDto
 import com.novelrealm.mobile.data.remote.dto.UpdateCommentRequestDto
 import com.novelrealm.mobile.data.remote.safeApiCall
 
@@ -59,6 +61,10 @@ class CommentRepository(private val commentApi: CommentApi) {
 
     suspend fun update(commentId: Long, body: String): ApiResult<ChapterCommentDto> =
         safeApiCall { commentApi.update(commentId, UpdateCommentRequestDto(body)) }
+
+    /** Pose ou retire une réaction emoji ; renvoie l'état à jour des réactions du message. */
+    suspend fun react(commentId: Long, emoji: String): ApiResult<CommentReactionsDto> =
+        safeApiCall { commentApi.react(commentId, ReactToCommentRequestDto(emoji)) }
 
     suspend fun delete(commentId: Long): ApiResult<Unit> =
         safeApiCall { commentApi.delete(commentId) }

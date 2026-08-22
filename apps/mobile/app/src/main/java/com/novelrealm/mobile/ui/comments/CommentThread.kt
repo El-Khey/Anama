@@ -1,7 +1,11 @@
 package com.novelrealm.mobile.ui.comments
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.outlined.AddReaction
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -33,18 +38,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import coil.compose.AsyncImage
 import com.novelrealm.mobile.data.remote.dto.ChapterCommentDto
 import com.novelrealm.mobile.data.remote.dto.MentionDto
 import com.novelrealm.mobile.data.remote.dto.PassageCommentDto
 import com.novelrealm.mobile.data.remote.resolveImageUrl
 import com.novelrealm.mobile.ui.components.CommentGif
+import com.novelrealm.mobile.ui.components.EmojiCatalog
+import com.novelrealm.mobile.ui.components.EmojiPickerSheet
 import com.novelrealm.mobile.ui.components.MentionText
 import com.novelrealm.mobile.ui.util.relativeTimeLabel
 
@@ -87,6 +98,16 @@ private val RootAvatar = 34.dp
 private val ReplyAvatar = 26.dp
 
 /**
+ * Une réaction emoji agrégée sur un message : l'emoji, combien de lecteurs l'ont
+ * posé, et si MOI j'en fais partie (pour surligner ma puce).
+ */
+data class ThreadReaction(
+    val emoji: String,
+    val count: Long,
+    val mine: Boolean,
+)
+
+/**
  * Un message, indépendamment de la table d'où il vient. Les deux familles de
  * commentaires (fin de chapitre, passage) n'ont pas le même DTO, mais elles ont
  * le même fil — c'est ici qu'elles se rejoignent.
@@ -106,8 +127,18 @@ data class ThreadComment(
     /** Pierre tombale : le message est supprimé mais ses réponses vivent encore. */
     val deleted: Boolean = false,
     val spoiler: Boolean = false,
+    val reactions: List<ThreadReaction> = emptyList(),
     val replies: List<ThreadComment> = emptyList(),
 )
+
+/** Fusionne le décompte serveur et « mes » emojis en une liste de [ThreadReaction]. */
+private fun buildReactions(
+    tallies: List<com.novelrealm.mobile.data.remote.dto.EmojiTallyDto>,
+    mine: List<String>,
+): List<ThreadReaction> {
+    val mineSet = mine.toSet()
+    return tallies.map { ThreadReaction(it.emoji, it.count, it.emoji in mineSet) }
+}
 
 fun ChapterCommentDto.toThreadComment(): ThreadComment = ThreadComment(
     id = id,
@@ -122,6 +153,7 @@ fun ChapterCommentDto.toThreadComment(): ThreadComment = ThreadComment(
     mine = mine,
     edited = edited,
     deleted = deleted,
+    reactions = buildReactions(reactions, myReactions),
     replies = replies.map { it.toThreadComment() },
 )
 
@@ -137,6 +169,7 @@ fun PassageCommentDto.toThreadComment(): ThreadComment = ThreadComment(
     createdAt = createdAt,
     mine = mine,
     spoiler = spoiler,
+    reactions = buildReactions(reactions, myReactions),
     replies = replies.map { it.toThreadComment() },
 )
 
@@ -148,6 +181,9 @@ fun PassageCommentDto.toThreadComment(): ThreadComment = ThreadComment(
  *   la même, et c'est elle qu'il faut mentionner puis notifier.
  * @param onEdit `null` quand la surface ne sait pas modifier (les messages de
  *   passage ne s'éditent pas) : l'action disparaît alors au lieu d'échouer.
+ * @param onToggleReaction reçoit le message visé, la racine du fil et l'emoji ;
+ *   `null` désactive les réactions sur cette surface. Le même appel pose ou retire
+ *   selon l'état — c'est le serveur qui tranche.
  */
 @Composable
 fun CommentThread(
@@ -157,6 +193,7 @@ fun CommentThread(
     onOpenUser: (Long) -> Unit,
     modifier: Modifier = Modifier,
     onEdit: ((comment: ThreadComment, root: ThreadComment) -> Unit)? = null,
+    onToggleReaction: ((comment: ThreadComment, root: ThreadComment, emoji: String) -> Unit)? = null,
     foreground: Color = MaterialTheme.colorScheme.onSurface,
 ) {
     // Le repli est propre à chaque fil : déplier l'un ne déplie pas les autres.
@@ -185,6 +222,9 @@ fun CommentThread(
                 onEdit = onEdit?.let { edit -> { edit(root, root) } },
                 onDelete = { onDelete(root, root) },
                 onOpenUser = onOpenUser,
+                onToggleReaction = onToggleReaction?.let { toggle ->
+                    { emoji -> toggle(root, root, emoji) }
+                },
             )
 
             if (visible.isNotEmpty()) {
@@ -206,6 +246,9 @@ fun CommentThread(
                                 onEdit = onEdit?.let { edit -> { edit(reply, root) } },
                                 onDelete = { onDelete(reply, root) },
                                 onOpenUser = onOpenUser,
+                                onToggleReaction = onToggleReaction?.let { toggle ->
+                                    { emoji -> toggle(reply, root, emoji) }
+                                },
                             )
                         }
                         if (collapsed) {
@@ -268,6 +311,7 @@ private fun CommentBody(
     onEdit: (() -> Unit)?,
     onDelete: () -> Unit,
     onOpenUser: (Long) -> Unit,
+    onToggleReaction: ((emoji: String) -> Unit)?,
 ) {
     // `remember` avant toute branche : un message peut devenir une pierre tombale
     // sous nos yeux, et un `return` anticipé ferait varier le nombre de blocs
@@ -276,6 +320,9 @@ private fun CommentBody(
     // Un spoiler est MASQUÉ, pas flouté : `Modifier.blur` ne fait rien avant
     // Android 12, et un flou qui ne s'applique pas révèle ce qu'il devait cacher.
     var revealed by remember(comment.id) { mutableStateOf(!comment.spoiler) }
+    // Barre de réaction rapide (appui long) et sélecteur complet (bouton « + »).
+    var showReactionBar by remember(comment.id) { mutableStateOf(false) }
+    var showEmojiPicker by remember(comment.id) { mutableStateOf(false) }
 
     if (comment.deleted) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -296,7 +343,17 @@ private fun CommentBody(
     }
 
     val userId = comment.userId
-    Row(modifier = Modifier.fillMaxWidth()) {
+    // L'appui long ouvre la barre de réaction — seulement si la surface les gère et
+    // que le message est révélé (long-presser un spoiler ouvrirait une barre sur un
+    // contenu qu'on n'a pas encore accepté de voir).
+    val reactionGesture = if (onToggleReaction != null && revealed) {
+        Modifier.pointerInput(comment.id) {
+            detectTapGestures(onLongPress = { showReactionBar = true })
+        }
+    } else {
+        Modifier
+    }
+    Row(modifier = Modifier.fillMaxWidth().then(reactionGesture)) {
         Avatar(
             url = comment.avatarUrl,
             pseudo = comment.pseudo,
@@ -370,6 +427,23 @@ private fun CommentBody(
                 SpoilerVeil(foreground = foreground, onReveal = { revealed = true })
             }
 
+            // Les puces de réaction, sous le message. Un re-tap sur une puce déjà à
+            // moi la retire (même appel que l'ajout — le serveur tranche). Le bouton
+            // « + » d'ajout n'apparaît que si la surface gère les réactions.
+            if (revealed && (comment.reactions.isNotEmpty() || onToggleReaction != null)) {
+                Spacer(Modifier.height(8.dp))
+                ReactionChips(
+                    reactions = comment.reactions,
+                    foreground = foreground,
+                    onToggle = onToggleReaction,
+                    onAdd = if (onToggleReaction != null) {
+                        { showReactionBar = true }
+                    } else {
+                        null
+                    },
+                )
+            }
+
             Spacer(Modifier.height(6.dp))
             // « Répondre » seul en accent ; modifier et supprimer restent gris.
             // Trois libellés colorés côte à côte pesaient plus lourd que le message
@@ -424,6 +498,167 @@ private fun CommentBody(
                 )
             },
         )
+    }
+
+    // La barre de réaction rapide, en surimpression (appui long). Un tap dessus pose
+    // l'emoji et referme ; le bouton « + » bascule vers le sélecteur complet.
+    if (showReactionBar && onToggleReaction != null) {
+        ReactionBarPopup(
+            onPick = { emoji ->
+                showReactionBar = false
+                onToggleReaction(emoji)
+            },
+            onMore = {
+                showReactionBar = false
+                showEmojiPicker = true
+            },
+            onDismiss = { showReactionBar = false },
+        )
+    }
+
+    if (showEmojiPicker && onToggleReaction != null) {
+        Dialog(onDismissRequest = { showEmojiPicker = false }) {
+            EmojiPickerSheet(
+                onPick = { emoji ->
+                    showEmojiPicker = false
+                    onToggleReaction(emoji)
+                },
+                onClose = { showEmojiPicker = false },
+            )
+        }
+    }
+}
+
+/**
+ * Les puces de réaction sous un message. Chaque puce montre l'emoji et son compteur ;
+ * celle où le lecteur figure est surlignée. Le « + » ouvre la barre de réaction.
+ */
+@Composable
+private fun ReactionChips(
+    reactions: List<ThreadReaction>,
+    foreground: Color,
+    onToggle: ((emoji: String) -> Unit)?,
+    onAdd: (() -> Unit)?,
+) {
+    // Une seule ligne qui défile plutôt que de passer à la ligne : `horizontalScroll`
+    // et non `FlowRow`, qui reste une API expérimentale (convention du projet, cf.
+    // LibraryScreen). Les réactions restent alignées sous le message, comme Discord.
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+    ) {
+        reactions.forEach { reaction ->
+            val accent = MaterialTheme.colorScheme.primary
+            val bg = if (reaction.mine) accent.copy(alpha = 0.16f) else foreground.copy(alpha = 0.07f)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(bg)
+                    .then(
+                        if (reaction.mine) {
+                            Modifier.border(1.dp, accent.copy(alpha = 0.55f), RoundedCornerShape(50))
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .then(
+                        if (onToggle != null) {
+                            Modifier.clickable { onToggle(reaction.emoji) }
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .padding(horizontal = 9.dp, vertical = 4.dp),
+            ) {
+                Text(text = reaction.emoji, fontSize = 13.sp)
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = reaction.count.toString(),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (reaction.mine) accent else foreground.copy(alpha = 0.7f),
+                )
+            }
+        }
+        if (onAdd != null) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(foreground.copy(alpha = 0.07f))
+                    .clickable(onClick = onAdd)
+                    .padding(horizontal = 9.dp, vertical = 4.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.AddReaction,
+                    contentDescription = "Ajouter une réaction",
+                    tint = foreground.copy(alpha = 0.55f),
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * La barre flottante des six emojis rapides + le bouton « + ». Positionnée en
+ * [Popup] au-dessus du message plutôt que dans le flux : elle ne pousse rien et se
+ * referme au tap à côté.
+ */
+@Composable
+private fun ReactionBarPopup(
+    onPick: (String) -> Unit,
+    onMore: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Popup(
+        alignment = Alignment.TopCenter,
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(50),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 4.dp,
+            shadowElevation = 12.dp,
+            modifier = Modifier.padding(8.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+            ) {
+                EmojiCatalog.QUICK.forEach { emoji ->
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .clickable { onPick(emoji) },
+                    ) {
+                        Text(text = emoji, fontSize = 22.sp)
+                    }
+                }
+                // Le « + » vers le clavier complet, comme sur Discord.
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f))
+                        .clickable(onClick = onMore),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.AddReaction,
+                        contentDescription = "Plus d'emojis",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+        }
     }
 }
 

@@ -86,6 +86,7 @@ fun ChapterCommentsSection(
     onReply: (rootId: Long, toUserId: Long?, toPseudo: String?, mention: Boolean) -> Unit,
     onEdit: (comment: ChapterCommentDto, rootId: Long?) -> Unit,
     onDelete: (comment: ChapterCommentDto, rootId: Long?) -> Unit,
+    onReact: (commentId: Long, emoji: String) -> Unit,
     onLoadMore: () -> Unit,
     onRetry: () -> Unit,
     onOpenUser: (Long) -> Unit,
@@ -161,6 +162,7 @@ fun ChapterCommentsSection(
                                 onDelete(it, if (comment.id == root.id) null else root.id)
                             }
                         },
+                        onToggleReaction = { comment, _, emoji -> onReact(comment.id, emoji) },
                         onOpenUser = onOpenUser,
                     )
                 }

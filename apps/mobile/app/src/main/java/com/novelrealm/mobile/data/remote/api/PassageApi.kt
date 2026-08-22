@@ -1,9 +1,11 @@
 package com.novelrealm.mobile.data.remote.api
 
 import com.novelrealm.mobile.data.remote.dto.ChapterActivityDto
+import com.novelrealm.mobile.data.remote.dto.CommentReactionsDto
 import com.novelrealm.mobile.data.remote.dto.CreatePassageCommentRequestDto
 import com.novelrealm.mobile.data.remote.dto.PassageCommentDto
 import com.novelrealm.mobile.data.remote.dto.PassageReactionDto
+import com.novelrealm.mobile.data.remote.dto.ReactToCommentRequestDto
 import com.novelrealm.mobile.data.remote.dto.ReactToPassageRequestDto
 import retrofit2.http.Body
 import retrofit2.http.DELETE
@@ -43,6 +45,16 @@ interface PassageApi {
         @Path("chapterId") chapterId: Long,
         @Body body: ReactToPassageRequestDto,
     ): PassageReactionDto
+
+    /**
+     * Réaction emoji sur un MESSAGE de passage (pas sur le bloc : voir `react`).
+     * Pose OU retire — plusieurs emojis par lecteur, façon Discord.
+     */
+    @PUT("api/passages/comments/{annotationId}/reactions")
+    suspend fun reactToComment(
+        @Path("annotationId") annotationId: Long,
+        @Body body: ReactToCommentRequestDto,
+    ): CommentReactionsDto
 
     @DELETE("api/passages/annotations/{annotationId}")
     suspend fun delete(@Path("annotationId") annotationId: Long)

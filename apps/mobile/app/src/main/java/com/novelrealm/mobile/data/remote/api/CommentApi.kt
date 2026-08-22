@@ -2,14 +2,17 @@ package com.novelrealm.mobile.data.remote.api
 
 import com.novelrealm.mobile.data.remote.dto.ChapterCommentDto
 import com.novelrealm.mobile.data.remote.dto.CommentCountDto
+import com.novelrealm.mobile.data.remote.dto.CommentReactionsDto
 import com.novelrealm.mobile.data.remote.dto.CreateCommentRequestDto
 import com.novelrealm.mobile.data.remote.dto.PageDto
+import com.novelrealm.mobile.data.remote.dto.ReactToCommentRequestDto
 import com.novelrealm.mobile.data.remote.dto.UpdateCommentRequestDto
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.PATCH
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
 
@@ -49,6 +52,13 @@ interface CommentApi {
         @Path("commentId") commentId: Long,
         @Body body: UpdateCommentRequestDto,
     ): ChapterCommentDto
+
+    /** Pose OU retire une réaction emoji — le serveur déduit lequel d'après l'état courant. */
+    @PUT("api/comments/{commentId}/reactions")
+    suspend fun react(
+        @Path("commentId") commentId: Long,
+        @Body body: ReactToCommentRequestDto,
+    ): CommentReactionsDto
 
     @DELETE("api/comments/{commentId}")
     suspend fun delete(@Path("commentId") commentId: Long)

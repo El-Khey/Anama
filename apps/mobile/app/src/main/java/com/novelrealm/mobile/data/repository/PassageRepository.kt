@@ -3,9 +3,11 @@ package com.novelrealm.mobile.data.repository
 import com.novelrealm.mobile.data.remote.ApiResult
 import com.novelrealm.mobile.data.remote.api.PassageApi
 import com.novelrealm.mobile.data.remote.dto.ChapterActivityDto
+import com.novelrealm.mobile.data.remote.dto.CommentReactionsDto
 import com.novelrealm.mobile.data.remote.dto.CreatePassageCommentRequestDto
 import com.novelrealm.mobile.data.remote.dto.PassageCommentDto
 import com.novelrealm.mobile.data.remote.dto.PassageReactionDto
+import com.novelrealm.mobile.data.remote.dto.ReactToCommentRequestDto
 import com.novelrealm.mobile.data.remote.dto.ReactToPassageRequestDto
 import com.novelrealm.mobile.data.remote.safeApiCall
 
@@ -51,6 +53,13 @@ class PassageRepository(private val passageApi: PassageApi) {
     ): ApiResult<PassageReactionDto> = safeApiCall {
         passageApi.react(chapterId, ReactToPassageRequestDto(blockIndex, emoji))
     }
+
+    /**
+     * Pose ou retire une réaction emoji sur un MESSAGE de passage (pas sur le bloc :
+     * voir `react`). Renvoie l'état à jour des réactions du message.
+     */
+    suspend fun reactToComment(annotationId: Long, emoji: String): ApiResult<CommentReactionsDto> =
+        safeApiCall { passageApi.reactToComment(annotationId, ReactToCommentRequestDto(emoji)) }
 
     suspend fun delete(annotationId: Long): ApiResult<Unit> =
         safeApiCall { passageApi.delete(annotationId) }
