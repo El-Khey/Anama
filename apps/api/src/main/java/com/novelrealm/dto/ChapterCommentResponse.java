@@ -25,6 +25,10 @@ import java.util.List;
  * courant a lui-même posées — le client s'en sert pour surligner ses puces. Un
  * message en pierre tombale n'en porte aucune (elles ont été purgées à sa
  * suppression n'aurait pas de sens de réagir à un vide).
+ *
+ * <p>{@code likes}/{@code dislikes} : les pouces verts / rouges posés sur ce message.
+ * {@code myVote} : le sens de MON vote — {@code +1}, {@code -1}, ou {@code 0} si je
+ * n'ai pas voté ; le client colore ses pouces d'après cette valeur.
  */
 public record ChapterCommentResponse(
         Long id,
@@ -42,5 +46,8 @@ public record ChapterCommentResponse(
         String gifPreviewUrl,
         List<EmojiTallyResponse> reactions,
         List<String> myReactions,
+        long likes,
+        long dislikes,
+        int myVote,
         List<ChapterCommentResponse> replies
 ) {}
