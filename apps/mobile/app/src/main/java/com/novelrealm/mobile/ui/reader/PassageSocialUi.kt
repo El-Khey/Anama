@@ -4,7 +4,6 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.clickable
@@ -119,34 +118,43 @@ fun BlockMark(
     val ink = foreground.copy(alpha = 0.3f)
     val myReactions = activity.myReactions.toSet()
 
-    // Réactions et compteur de commentaires GROUPÉS à gauche, façon TikTok : les emojis
-    // puis le 💬 juste à côté, sur la même ligne, et non aux deux extrémités. Toute la
-    // rangée défile ensemble si les réactions sont nombreuses (`horizontalScroll`, pas
-    // FlowRow qui reste expérimental — convention du projet).
+    // TOUT à DROITE, côte à côte : les emojis de réaction PUIS l'icône commentaire,
+    // collés l'un à l'autre au coin bas-droit du paragraphe. `Arrangement.End` pousse
+    // le groupe entier à droite ; les emojis défilent (`horizontalScroll`, pas FlowRow
+    // expérimental) et sont bornés par `weight(1f, fill = false)` pour ne jamais chasser
+    // le 💬 hors de l'écran.
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.End,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 5.dp)
-            .horizontalScroll(rememberScrollState()),
+            .padding(top = 5.dp),
     ) {
-        chips.forEach { tally ->
-            BlockReactionChip(
-                emoji = tally.emoji,
-                count = tally.count,
-                mine = tally.emoji in myReactions,
-                ink = ink,
-                foreground = foreground,
-                onClick = { onToggleReaction(tally.emoji) },
-            )
+        // Les emojis, juste à gauche du 💬 — tout contre lui, pas à l'autre bout.
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .horizontalScroll(rememberScrollState()),
+        ) {
+            chips.forEach { tally ->
+                BlockReactionChip(
+                    emoji = tally.emoji,
+                    count = tally.count,
+                    mine = tally.emoji in myReactions,
+                    ink = ink,
+                    foreground = foreground,
+                    onClick = { onToggleReaction(tally.emoji) },
+                )
+            }
         }
-        // Le compteur de commentaires, juste APRÈS les réactions — discret, toucher
-        // ouvre la feuille.
+        // L'icône commentaire, tout de suite après les emojis — toucher ouvre la feuille.
         if (comments > 0) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
+                    .padding(start = 6.dp)
                     .clip(RoundedCornerShape(50))
                     .clickable(onClick = onClick)
                     .padding(horizontal = 4.dp, vertical = 2.dp),
@@ -163,10 +171,10 @@ fun BlockMark(
 }
 
 /**
- * Une puce de réaction sous un paragraphe : l'emoji + son compteur, **à la taille du
- * compteur de commentaires** et dans le même gris neutre — pas de teinte d'accent, qui
- * jurait avec le calme de la page. Sa réaction se repère à un simple liseré, pas à une
- * bulle colorée. Un tap la bascule (pose/retire).
+ * Une puce de réaction sous un paragraphe : l'emoji + son compteur dans une petite
+ * pastille arrondie **sans liseré** — le fond suffit à détacher la puce du texte, le
+ * contour l'alourdissait. Ma réaction à moi se repère au compteur en gras. Un tap la
+ * bascule (pose/retire).
  */
 @Composable
 private fun BlockReactionChip(
@@ -177,30 +185,23 @@ private fun BlockReactionChip(
     foreground: Color,
     onClick: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(6.dp)
     Row(
         verticalAlignment = Alignment.CenterVertically,
+        // La puce : un fond arrondi, mais PAS de bordure. La zone cliquable garde un
+        // padding confortable au doigt.
         modifier = Modifier
-            .clip(shape)
+            .clip(RoundedCornerShape(6.dp))
             .background(foreground.copy(alpha = 0.06f))
-            .then(
-                // Ma réaction : un liseré gris un peu plus marqué, pas de couleur.
-                if (mine) {
-                    Modifier.border(1.dp, foreground.copy(alpha = 0.28f), shape)
-                } else {
-                    Modifier
-                },
-            )
             .clickable(onClick = onClick)
             .padding(horizontal = 5.dp, vertical = 2.dp),
     ) {
-        Text(text = emoji, fontSize = 10.sp)
+        Text(text = emoji, fontSize = 11.sp)
         if (count > 0) {
             Spacer(Modifier.width(3.dp))
             Text(
                 text = "$count",
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                fontWeight = if (mine) FontWeight.SemiBold else FontWeight.Normal,
+                fontWeight = if (mine) FontWeight.Bold else FontWeight.Normal,
                 color = ink,
             )
         }

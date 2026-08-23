@@ -13,7 +13,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AddReaction
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -23,58 +22,20 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 
 /**
- * La barre flottante des six emojis rapides ([EmojiCatalog.QUICK]) + le bouton « + ».
+ * La barre de réaction rapide **dans le flux** — les six emojis rapides
+ * ([EmojiCatalog.QUICK]) + le bouton « + » —, compacte et sobre.
  *
- * <p>Partagée par les réactions de COMMENTAIRE (appui long sur un message) et de BLOC
- * (double tap sur un paragraphe) — un seul geste rapide, une seule barre. Positionnée
- * en [Popup] plutôt que dans le flux : elle ne pousse rien et se referme au tap à côté.
+ * <p>La MÊME barre partout : sous un paragraphe (double tap sur un bloc) comme sous un
+ * commentaire (bouton « + » des puces). On avait un temps une variante flottante en
+ * `Popup` pour les commentaires — trop grosse, façon carte posée par-dessus la page.
+ * Le lecteur a demandé la barre du paragraphe partout : c'est celle-ci, et c'est tout.
  *
- * @param onPick un des six emojis rapides a été touché
- * @param onMore le bouton « + » — ouvrir le sélecteur complet ([EmojiPickerSheet])
- * @param onDismiss un tap à côté a fermé la barre
- */
-@Composable
-fun ReactionBarPopup(
-    onPick: (String) -> Unit,
-    onMore: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    Popup(
-        alignment = Alignment.TopCenter,
-        onDismissRequest = onDismiss,
-        properties = PopupProperties(focusable = true),
-    ) {
-        Surface(
-            shape = RoundedCornerShape(50),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 3.dp,
-            shadowElevation = 14.dp,
-            modifier = Modifier.padding(8.dp),
-        ) {
-            ReactionBarContent(
-                onPick = onPick,
-                onMore = onMore,
-                tileSize = 42.dp,
-                emojiSize = 23.sp,
-                addIconSize = 20.dp,
-                padding = 6.dp,
-                spacing = 4.dp,
-            )
-        }
-    }
-}
-
-/**
- * La barre de réaction **dans le flux** (pas en Popup) — compacte, pour se poser sur la
- * ligne des marques sous un paragraphe, entre les puces à gauche et le 💬 à droite.
- *
- * <p>Plus petite et moins arrondie que la version en Popup : elle vit au fil du texte,
- * elle ne doit pas peser comme une carte flottante. Le [background] est peint ici (pas
- * de Surface) pour rester sobre.
+ * <p>Elle vit au fil du texte : plus petite et moins arrondie qu'une carte flottante,
+ * le [background] peint ici (pas de Surface) pour rester discret. Comme elle est dans
+ * le flux, l'appelant l'insère là où il veut la voir (au-dessus des marques, sous les
+ * puces…) et la retire d'un état — elle ne se ferme pas « au tap à côté » toute seule.
  */
 @Composable
 fun ReactionBarInline(

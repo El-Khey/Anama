@@ -311,7 +311,16 @@ private fun SearchField(query: String, onQueryChange: (String) -> Unit) {
     }
 }
 
-/** Une vignette de la grille — FIGÉE (loader par défaut : première image seulement). */
+/**
+ * Une vignette de la grille — **animée**, pour qu'on voie ce que fait le GIF avant de
+ * le choisir (une grille figée obligeait à en ouvrir un pour le reconnaître).
+ *
+ * La grille est une `LazyVerticalGrid` : seules les cellules visibles (plus une frange)
+ * sont composées, et Coil libère le décodeur d'une cellule sortie de l'écran. L'animation
+ * ne tourne donc, de fait, que sur ce qui est à l'écran — sans qu'on ait à piloter nous-
+ * mêmes un « visible/pas visible ». La vignette figée reste dessous : elle occupe le cadre
+ * pendant que l'animé se télécharge et évite le clignotement gris.
+ */
 @Composable
 private fun GifCell(gif: GifDto, onClick: () -> Unit) {
     val ratio = if (gif.width > 0 && gif.height > 0) {
@@ -319,6 +328,7 @@ private fun GifCell(gif: GifDto, onClick: () -> Unit) {
     } else {
         4f / 3f
     }
+    val gifLoader = rememberGifLoader()
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -327,9 +337,19 @@ private fun GifCell(gif: GifDto, onClick: () -> Unit) {
             .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
             .clickable(onClick = onClick),
     ) {
+        // Dessous : la vignette figée (loader par défaut, première image), le temps que
+        // l'animé arrive.
         AsyncImage(
             model = gif.previewUrl.ifBlank { gif.url },
             contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.matchParentSize(),
+        )
+        // Dessus : le GIF animé, via le loader à décodeur GIF.
+        AsyncImage(
+            model = gif.url,
+            contentDescription = null,
+            imageLoader = gifLoader,
             contentScale = ContentScale.Crop,
             modifier = Modifier.matchParentSize(),
         )

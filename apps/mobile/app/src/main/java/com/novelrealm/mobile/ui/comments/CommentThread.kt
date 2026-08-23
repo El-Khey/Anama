@@ -64,7 +64,7 @@ import com.novelrealm.mobile.data.remote.resolveImageUrl
 import com.novelrealm.mobile.ui.components.CommentGif
 import com.novelrealm.mobile.ui.components.EmojiPickerSheet
 import com.novelrealm.mobile.ui.components.MentionText
-import com.novelrealm.mobile.ui.components.ReactionBarPopup
+import com.novelrealm.mobile.ui.components.ReactionBarInline
 import com.novelrealm.mobile.ui.util.relativeTimeLabel
 
 /**
@@ -591,6 +591,24 @@ private fun CommentBody(
                 )
             }
 
+            // La barre de réaction rapide — EXACTEMENT celle d'un paragraphe
+            // ([ReactionBarInline]) : compacte, dans le flux, pas un gros popup flottant.
+            // Elle s'ajoute sous les puces quand on touche le « + », le temps de choisir ;
+            // un emoji la referme, le « + » bascule vers le sélecteur complet.
+            if (revealed && showReactionBar && onToggleReaction != null) {
+                Spacer(Modifier.height(6.dp))
+                ReactionBarInline(
+                    onPick = { emoji ->
+                        showReactionBar = false
+                        onToggleReaction(emoji)
+                    },
+                    onMore = {
+                        showReactionBar = false
+                        showEmojiPicker = true
+                    },
+                )
+            }
+
             Spacer(Modifier.height(6.dp))
             // Ligne d'actions façon TikTok : date à GAUCHE, pouces vert/rouge à DROITE.
             // Le TAP sur le message répond, l'APPUI LONG ouvre le menu. Les pouces sont
@@ -667,22 +685,6 @@ private fun CommentBody(
             onEdit = { showMenu = false; onEdit?.invoke() },
             onDelete = { showMenu = false; confirmDelete = true },
             onDismiss = { showMenu = false },
-        )
-    }
-
-    // La barre de réaction rapide, en surimpression (via le « + » des puces). Un tap
-    // dessus pose l'emoji et referme ; le bouton « + » bascule vers le sélecteur complet.
-    if (showReactionBar && onToggleReaction != null) {
-        ReactionBarPopup(
-            onPick = { emoji ->
-                showReactionBar = false
-                onToggleReaction(emoji)
-            },
-            onMore = {
-                showReactionBar = false
-                showEmojiPicker = true
-            },
-            onDismiss = { showReactionBar = false },
         )
     }
 
