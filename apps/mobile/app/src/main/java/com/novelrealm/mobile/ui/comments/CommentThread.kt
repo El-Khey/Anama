@@ -1,7 +1,10 @@
 package com.novelrealm.mobile.ui.comments
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
@@ -44,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -76,8 +80,8 @@ import com.novelrealm.mobile.ui.util.relativeTimeLabel
  *
  * **Ce qui est une racine, et ce qui répond.** La racine porte une carte ; les
  * réponses n'en ont pas. C'est la différence la plus forte, et la moins coûteuse :
- * on voit la structure sans lire un mot. Avatars et graisse suivent (34 dp contre
- * 26 dp), le filet vertical fait le reste.
+ * on voit la structure sans lire un mot. Avatars et graisse suivent (38 dp contre
+ * 30 dp), le filet vertical fait le reste.
  *
  * **Un seul filet pour tout le groupe**, et non un segment par réponse. Un trait
  * continu dit « tout ceci appartient au message du dessus » ; des traits séparés
@@ -95,8 +99,8 @@ import com.novelrealm.mobile.ui.util.relativeTimeLabel
  * posées par-dessus la page au lieu d'en faire partie.
  */
 
-private val RootAvatar = 34.dp
-private val ReplyAvatar = 26.dp
+private val RootAvatar = 38.dp
+private val ReplyAvatar = 30.dp
 
 /**
  * Une réaction emoji agrégée sur un message : l'emoji, combien de lecteurs l'ont
@@ -129,6 +133,10 @@ data class ThreadComment(
     val deleted: Boolean = false,
     val spoiler: Boolean = false,
     val reactions: List<ThreadReaction> = emptyList(),
+    /** Pouces verts / rouges, et le sens de MON vote (+1, -1, 0). */
+    val likeCount: Long = 0,
+    val dislikeCount: Long = 0,
+    val myVote: Int = 0,
     val replies: List<ThreadComment> = emptyList(),
 )
 
@@ -155,6 +163,9 @@ fun ChapterCommentDto.toThreadComment(): ThreadComment = ThreadComment(
     edited = edited,
     deleted = deleted,
     reactions = buildReactions(reactions, myReactions),
+    likeCount = likes,
+    dislikeCount = dislikes,
+    myVote = myVote,
     replies = replies.map { it.toThreadComment() },
 )
 
@@ -171,6 +182,9 @@ fun PassageCommentDto.toThreadComment(): ThreadComment = ThreadComment(
     mine = mine,
     spoiler = spoiler,
     reactions = buildReactions(reactions, myReactions),
+    likeCount = likes,
+    dislikeCount = dislikes,
+    myVote = myVote,
     replies = replies.map { it.toThreadComment() },
 )
 
@@ -195,7 +209,16 @@ fun CommentThread(
     modifier: Modifier = Modifier,
     onEdit: ((comment: ThreadComment, root: ThreadComment) -> Unit)? = null,
     onToggleReaction: ((comment: ThreadComment, root: ThreadComment, emoji: String) -> Unit)? = null,
+    // Vote (pouce vert / rouge). Reçoit le message visé, la racine du fil, et le sens
+    // (+1 / -1). `null` masque les pouces. Le même appel pose, bascule ou retire selon
+    // l'état — c'est le serveur qui tranche.
+    onVote: ((comment: ThreadComment, root: ThreadComment, value: Int) -> Unit)? = null,
     foreground: Color = MaterialTheme.colorScheme.onSurface,
+    // Marge latérale du CONTENU. Le survol, lui, va bord à bord : c'est l'inset qui
+    // rentre le contenu, pas la ligne surlignée. Les surfaces qui appelaient avec un
+    // `padding(horizontal = 16)` autour passent désormais cette valeur ici et retirent
+    // ce padding, sinon le survol s'arrêterait avant les bords (au lieu de les toucher).
+    contentInset: Dp = 16.dp,
 ) {
     // Le repli est propre à chaque fil : déplier l'un ne déplie pas les autres.
     var expanded by remember(root.id) { mutableStateOf(false) }
@@ -203,12 +226,14 @@ fun CommentThread(
 
     // Plus de carte : les commentaires sont À PLAT façon TikTok, séparés par de
     // l'espace, pas par des rectangles teintés. Seules les réponses gardent un filet
-    // vertical pour montrer leur rattachement.
+    // vertical pour montrer leur rattachement. Pas de padding horizontal ICI : le
+    // survol doit pouvoir aller bord à bord, l'inset est posé plus bas sur le contenu.
     Column(modifier = modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         CommentBody(
             comment = root,
             foreground = foreground,
             avatarSize = RootAvatar,
+            contentInset = contentInset,
             isRoot = true,
             replyTo = null,
             onReply = { onReply(root, root) },
@@ -218,25 +243,35 @@ fun CommentThread(
             onToggleReaction = onToggleReaction?.let { toggle ->
                 { emoji -> toggle(root, root, emoji) }
             },
+            onVote = onVote?.let { vote ->
+                { value -> vote(root, root, value) }
+            },
         )
 
         if (replies.isNotEmpty()) {
-            // Réponses REPLIÉES par défaut, façon TikTok : on ne montre d'abord que
-            // « Afficher N réponses ». N est le nombre RÉEL de réponses. Une fois
-            // déplié, on peut tout refermer.
-            Spacer(Modifier.height(10.dp))
-            RepliesToggle(
-                count = replies.size,
-                expanded = expanded,
-                foreground = foreground,
-                onClick = { expanded = !expanded },
-            )
-
-            if (expanded) {
+            // Réponses REPLIÉES par défaut, façon TikTok. Replié : « Afficher N
+            // réponses » sous la racine. Déplié : les réponses, PUIS « Masquer » tout
+            // en bas — sous la DERNIÈRE réponse, jamais coincé sous le parent (ça
+            // faisait bizarre : le bouton semblait appartenir à la racine, pas au
+            // groupe qu'il ferme).
+            if (!expanded) {
+                Spacer(Modifier.height(10.dp))
+                RepliesToggle(
+                    count = replies.size,
+                    expanded = false,
+                    foreground = foreground,
+                    startInset = contentInset + 32.dp,
+                    onClick = { expanded = true },
+                )
+            } else {
                 Spacer(Modifier.height(14.dp))
                 // `IntrinsicSize.Min` donne au filet la hauteur exacte du groupe :
                 // un `fillMaxHeight` seul n'aurait rien à quoi se mesurer ici.
-                Row(modifier = Modifier.height(IntrinsicSize.Min).padding(start = 44.dp)) {
+                Row(
+                    modifier = Modifier
+                        .height(IntrinsicSize.Min)
+                        .padding(start = contentInset + 32.dp, end = contentInset),
+                ) {
                     ThreadRail(foreground)
                     Column {
                         replies.forEachIndexed { index, reply ->
@@ -245,6 +280,9 @@ fun CommentThread(
                                 comment = reply,
                                 foreground = foreground,
                                 avatarSize = ReplyAvatar,
+                                // Les réponses sont déjà en retrait (rail + décalage du
+                                // groupe) : leur survol part de là et file jusqu'au bord.
+                                contentInset = 0.dp,
                                 isRoot = false,
                                 replyTo = replyTargetOf(reply, root),
                                 onReply = { onReply(reply, root) },
@@ -254,10 +292,22 @@ fun CommentThread(
                                 onToggleReaction = onToggleReaction?.let { toggle ->
                                     { emoji -> toggle(reply, root, emoji) }
                                 },
+                                onVote = onVote?.let { vote ->
+                                    { value -> vote(reply, root, value) }
+                                },
                             )
                         }
                     }
                 }
+                // « Masquer » aligné sous les réponses (même retrait que le rail).
+                Spacer(Modifier.height(12.dp))
+                RepliesToggle(
+                    count = replies.size,
+                    expanded = true,
+                    foreground = foreground,
+                    startInset = contentInset + 32.dp,
+                    onClick = { expanded = false },
+                )
             }
         }
     }
@@ -272,23 +322,26 @@ private fun RepliesToggle(
     count: Int,
     expanded: Boolean,
     foreground: Color,
+    startInset: Dp,
     onClick: () -> Unit,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .padding(start = 44.dp)
-            .clip(RoundedCornerShape(6.dp))
+            .padding(start = startInset)
+            .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 4.dp, horizontal = 2.dp),
+            .padding(vertical = 5.dp, horizontal = 4.dp),
     ) {
+        // Le petit trait TikTok qui « raccroche » le bouton au fil des réponses.
         Box(
             modifier = Modifier
-                .width(24.dp)
+                .width(28.dp)
                 .height(1.dp)
-                .background(foreground.copy(alpha = 0.2f)),
+                .clip(RoundedCornerShape(50))
+                .background(foreground.copy(alpha = 0.22f)),
         )
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(12.dp))
         Text(
             text = if (expanded) {
                 "Masquer les réponses"
@@ -297,15 +350,15 @@ private fun RepliesToggle(
             },
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
-            color = foreground.copy(alpha = 0.55f),
+            color = foreground.copy(alpha = 0.6f),
         )
-        Spacer(Modifier.width(2.dp))
+        Spacer(Modifier.width(3.dp))
         Icon(
             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,
-            tint = foreground.copy(alpha = 0.45f),
+            tint = foreground.copy(alpha = 0.5f),
             modifier = Modifier
-                .size(18.dp)
+                .size(17.dp)
                 .rotate(if (expanded) -90f else 90f),
         )
     }
@@ -350,6 +403,7 @@ private fun CommentBody(
     comment: ThreadComment,
     foreground: Color,
     avatarSize: Dp,
+    contentInset: Dp,
     isRoot: Boolean,
     replyTo: String?,
     onReply: () -> Unit,
@@ -357,6 +411,7 @@ private fun CommentBody(
     onDelete: () -> Unit,
     onOpenUser: (Long) -> Unit,
     onToggleReaction: ((emoji: String) -> Unit)?,
+    onVote: ((value: Int) -> Unit)?,
 ) {
     // `remember` avant toute branche : un message peut devenir une pierre tombale
     // sous nos yeux, et un `return` anticipé ferait varier le nombre de blocs
@@ -391,12 +446,34 @@ private fun CommentBody(
     }
 
     val userId = comment.userId
+    // Retour tactile façon TikTok/iOS : pendant qu'on garde le doigt sur un message,
+    // il « s'enfonce » très légèrement (scale) et se teinte (fond). `onPress` reste
+    // suspendu jusqu'au relâchement (`tryAwaitRelease`) — on tient donc l'état pressé
+    // exactement le temps du contact, tap comme appui long compris.
+    var pressed by remember(comment.id) { mutableStateOf(false) }
+    val pressScale by animateFloatAsState(
+        targetValue = if (pressed) 0.98f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium),
+        label = "commentPressScale",
+    )
+    val pressBg by animateFloatAsState(
+        targetValue = if (pressed) 0.06f else 0f,
+        animationSpec = tween(durationMillis = 120),
+        label = "commentPressBg",
+    )
     // Le geste sur un message : TAP = répondre, APPUI LONG = menu (Répondre /
     // Modifier / Supprimer). On ne l'attache que si le message est révélé — agir
     // sur un spoiler qu'on n'a pas accepté de voir n'aurait pas de sens.
     val messageGesture = if (revealed) {
         Modifier.pointerInput(comment.id) {
             detectTapGestures(
+                onPress = {
+                    pressed = true
+                    // Suspend jusqu'au relâchement OU à l'annulation (le doigt part
+                    // en scroll) : dans les deux cas on rend son état normal au message.
+                    tryAwaitRelease()
+                    pressed = false
+                },
                 onTap = { onReply() },
                 onLongPress = { showMenu = true },
             )
@@ -404,7 +481,21 @@ private fun CommentBody(
     } else {
         Modifier
     }
-    Row(modifier = Modifier.fillMaxWidth().then(messageGesture)) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = pressScale
+                scaleY = pressScale
+            }
+            // Survol BORD À BORD : le fond prend toute la largeur (pas d'arrondi latéral,
+            // pas de marge — c'est la ligne entière qui s'allume, façon TikTok). L'inset
+            // n'est appliqué qu'ENSUITE, au contenu, pour que le texte garde sa marge
+            // pendant que le surlignage, lui, touche les deux bords.
+            .background(foreground.copy(alpha = pressBg))
+            .then(messageGesture)
+            .padding(horizontal = contentInset, vertical = 6.dp),
+    ) {
         Avatar(
             url = comment.avatarUrl,
             pseudo = comment.pseudo,
@@ -423,7 +514,7 @@ private fun CommentBody(
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = if (comment.mine) MaterialTheme.colorScheme.primary
-                    else foreground.copy(alpha = 0.5f),
+                    else foreground.copy(alpha = 0.62f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
@@ -449,7 +540,7 @@ private fun CommentBody(
                         text = replyTo,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = foreground.copy(alpha = 0.5f),
+                        color = foreground.copy(alpha = 0.62f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
@@ -459,7 +550,7 @@ private fun CommentBody(
 
             if (revealed) {
                 if (comment.body.isNotBlank()) {
-                    Spacer(Modifier.height(3.dp))
+                    Spacer(Modifier.height(4.dp))
                     // Corps plus présent que le pseudo gris — c'est lui qu'on lit.
                     MentionText(
                         body = comment.body,
@@ -501,10 +592,11 @@ private fun CommentBody(
             }
 
             Spacer(Modifier.height(6.dp))
-            // Ligne d'actions façon TikTok : date à GAUCHE, pouces levé/baissé à
-            // DROITE. Plus de « Répondre / Modifier / Supprimer » en toutes lettres :
-            // le TAP sur le message répond, l'APPUI LONG ouvre le menu. Les pouces
-            // sont DÉCORATIFS — pas de compteur, pas de logique (like/dislike à venir).
+            // Ligne d'actions façon TikTok : date à GAUCHE, pouces vert/rouge à DROITE.
+            // Le TAP sur le message répond, l'APPUI LONG ouvre le menu. Les pouces sont
+            // maintenant de VRAIS votes : un tap pose (+1/-1), un re-tap du même sens
+            // retire, l'autre sens bascule — c'est le serveur qui tranche, l'UI reflète
+            // `myVote` renvoyé. Pouce PLEIN quand c'est mon vote, contour sinon.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth(),
@@ -517,18 +609,20 @@ private fun CommentBody(
                     maxLines = 1,
                 )
                 Spacer(Modifier.weight(1f))
-                Icon(
-                    imageVector = Icons.Outlined.ThumbUp,
-                    contentDescription = "J'aime (bientôt)",
-                    tint = foreground.copy(alpha = 0.4f),
-                    modifier = Modifier.size(16.dp),
+                VoteThumb(
+                    up = true,
+                    count = comment.likeCount,
+                    active = comment.myVote > 0,
+                    foreground = foreground,
+                    onClick = onVote?.let { { it(1) } },
                 )
-                Spacer(Modifier.width(16.dp))
-                Icon(
-                    imageVector = Icons.Outlined.ThumbDown,
-                    contentDescription = "Je n'aime pas (bientôt)",
-                    tint = foreground.copy(alpha = 0.4f),
-                    modifier = Modifier.size(16.dp),
+                Spacer(Modifier.width(14.dp))
+                VoteThumb(
+                    up = false,
+                    count = comment.dislikeCount,
+                    active = comment.myVote < 0,
+                    foreground = foreground,
+                    onClick = onVote?.let { { it(-1) } },
                 )
             }
         }
@@ -605,6 +699,54 @@ private fun CommentBody(
     }
 }
 
+/** Le vert du pouce levé quand c'est mon vote, le rouge du pouce baissé. */
+private val VoteUpColor = Color(0xFF22C55E)
+private val VoteDownColor = Color(0xFFEF4444)
+
+/**
+ * Un pouce de vote (vert levé / rouge baissé), avec son compteur. PLEIN et coloré quand
+ * c'est MON vote, en contour gris sinon. `onClick` null = pouces inertes (surface qui ne
+ * gère pas le vote) — ils s'affichent alors juste comme compteurs.
+ */
+@Composable
+private fun VoteThumb(
+    up: Boolean,
+    count: Long,
+    active: Boolean,
+    foreground: Color,
+    onClick: (() -> Unit)?,
+) {
+    val accent = if (up) VoteUpColor else VoteDownColor
+    // Mon vote se lit à la COULEUR (vert/rouge plein) plutôt qu'à un pouce plein vs
+    // contour : ça évite d'importer les deux variantes d'icône (même nom, collision) et
+    // reste tout aussi clair — la couleur saute plus aux yeux que le remplissage.
+    val tint = if (active) accent else foreground.copy(alpha = 0.4f)
+    val icon = if (up) Icons.Outlined.ThumbUp else Icons.Outlined.ThumbDown
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = if (up) "J'aime" else "Je n'aime pas",
+            tint = tint,
+            modifier = Modifier.size(16.dp),
+        )
+        if (count > 0) {
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = "$count",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                color = tint,
+            )
+        }
+    }
+}
+
 /**
  * Les puces de réaction sous un message. Chaque puce montre l'emoji et son compteur ;
  * celle où le lecteur figure est surlignée. Le « + » ouvre la barre de réaction.
@@ -632,13 +774,9 @@ private fun ReactionChips(
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
                     .background(bg)
-                    .then(
-                        if (reaction.mine) {
-                            Modifier.border(1.dp, accent.copy(alpha = 0.55f), RoundedCornerShape(50))
-                        } else {
-                            Modifier
-                        },
-                    )
+                    // Plus de liseré autour de MES réactions : le fond teinté accent et le
+                    // compteur en accent suffisent à les distinguer, sans le contour qui
+                    // alourdissait la pastille.
                     .then(
                         if (onToggle != null) {
                             Modifier.clickable { onToggle(reaction.emoji) }

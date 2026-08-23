@@ -51,17 +51,18 @@ fun ReactionBarPopup(
         Surface(
             shape = RoundedCornerShape(50),
             color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 4.dp,
-            shadowElevation = 12.dp,
+            tonalElevation = 3.dp,
+            shadowElevation = 14.dp,
             modifier = Modifier.padding(8.dp),
         ) {
             ReactionBarContent(
                 onPick = onPick,
                 onMore = onMore,
-                tileSize = 40.dp,
-                emojiSize = 22.sp,
+                tileSize = 42.dp,
+                emojiSize = 23.sp,
                 addIconSize = 20.dp,
-                padding = 5.dp,
+                padding = 6.dp,
+                spacing = 4.dp,
             )
         }
     }
@@ -95,6 +96,7 @@ fun ReactionBarInline(
             emojiSize = 16.sp,
             addIconSize = 15.dp,
             padding = 0.dp,
+            spacing = 2.dp,
         )
     }
 }
@@ -108,10 +110,11 @@ private fun ReactionBarContent(
     emojiSize: TextUnit,
     addIconSize: Dp,
     padding: Dp,
+    spacing: Dp,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(1.dp),
+        horizontalArrangement = Arrangement.spacedBy(spacing),
         modifier = Modifier.padding(padding),
     ) {
         EmojiCatalog.QUICK.forEach { emoji ->

@@ -14,6 +14,11 @@ val NovelBackgroundDark = Color(0xFF0A0A0C)
 val NovelSurfaceDark = Color(0xFF17171B)
 val NovelSurfaceVariantDark = Color(0xFF232329)
 
+// Fond dédié à la feuille de commentaires : un gris neutre et froid façon TikTok,
+// plus profond que `NovelSurfaceDark` (qui tire légèrement vers le chaud/violacé) pour
+// que la discussion se lise comme sa propre surface, posée au-dessus de la lecture.
+val NovelCommentSheetDark = Color(0xFF121214)
+
 // Neutres clairs
 val NovelBackgroundLight = Color(0xFFFAFAFA)
 val NovelSurfaceLight = Color(0xFFFFFFFF)

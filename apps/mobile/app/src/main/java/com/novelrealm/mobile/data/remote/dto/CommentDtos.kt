@@ -32,6 +32,11 @@ data class ChapterCommentDto(
     val reactions: List<EmojiTallyDto> = emptyList(),
     /** Les emojis que MOI j'ai posés, pour surligner mes puces. */
     val myReactions: List<String> = emptyList(),
+    /** Pouces verts / rouges posés sur ce message. */
+    val likes: Long = 0,
+    val dislikes: Long = 0,
+    /** Le sens de MON vote : +1 pour, -1 contre, 0 si je n'ai pas voté. */
+    val myVote: Int = 0,
     val replies: List<ChapterCommentDto> = emptyList(),
 )
 
@@ -87,4 +92,23 @@ data class CommentReactionsDto(
     val commentId: Long,
     val reactions: List<EmojiTallyDto> = emptyList(),
     val myReactions: List<String> = emptyList(),
+)
+
+// Corps de `PUT /api/comments/{id}/vote` et de la variante passage. `value` vaut +1
+// (pouce vert) ou -1 (pouce rouge). Le serveur déduit le geste de l'état courant :
+// revoter le même sens retire, voter l'autre bascule — le neutre est un résultat, pas
+// une valeur envoyée.
+@Serializable
+data class VoteRequestDto(
+    val value: Int,
+)
+
+// Miroir de `CommentVotesResponse` (back) : l'état des votes d'un message après un
+// geste, de quoi rafraîchir ses deux pouces sans recharger tout le fil.
+@Serializable
+data class CommentVotesDto(
+    val commentId: Long,
+    val likes: Long = 0,
+    val dislikes: Long = 0,
+    val myVote: Int = 0,
 )

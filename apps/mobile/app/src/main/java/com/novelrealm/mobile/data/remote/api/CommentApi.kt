@@ -3,10 +3,12 @@ package com.novelrealm.mobile.data.remote.api
 import com.novelrealm.mobile.data.remote.dto.ChapterCommentDto
 import com.novelrealm.mobile.data.remote.dto.CommentCountDto
 import com.novelrealm.mobile.data.remote.dto.CommentReactionsDto
+import com.novelrealm.mobile.data.remote.dto.CommentVotesDto
 import com.novelrealm.mobile.data.remote.dto.CreateCommentRequestDto
 import com.novelrealm.mobile.data.remote.dto.PageDto
 import com.novelrealm.mobile.data.remote.dto.ReactToCommentRequestDto
 import com.novelrealm.mobile.data.remote.dto.UpdateCommentRequestDto
+import com.novelrealm.mobile.data.remote.dto.VoteRequestDto
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -59,6 +61,13 @@ interface CommentApi {
         @Path("commentId") commentId: Long,
         @Body body: ReactToCommentRequestDto,
     ): CommentReactionsDto
+
+    /** Pouce vert (+1) ou rouge (-1), ou retrait — le serveur déduit d'après l'état courant. */
+    @PUT("api/comments/{commentId}/vote")
+    suspend fun vote(
+        @Path("commentId") commentId: Long,
+        @Body body: VoteRequestDto,
+    ): CommentVotesDto
 
     @DELETE("api/comments/{commentId}")
     suspend fun delete(@Path("commentId") commentId: Long)

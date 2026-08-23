@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.novelrealm.mobile.data.remote.ApiResult
 import com.novelrealm.mobile.data.remote.dto.ChapterCommentDto
 import com.novelrealm.mobile.data.remote.dto.CommentReactionsDto
+import com.novelrealm.mobile.data.remote.dto.CommentVotesDto
 import com.novelrealm.mobile.data.remote.dto.GifDto
 import com.novelrealm.mobile.data.remote.dto.UserSearchDto
 import com.novelrealm.mobile.data.remote.userMessage
@@ -354,6 +355,24 @@ class ChapterCommentsViewModel(private val chapterId: Long) : ViewModel() {
         }
     }
 
+    /**
+     * Vote (pouce vert / rouge) sur un message. Comme pour les réactions : le serveur
+     * tranche entre poser, basculer et retirer selon l'état, et on applique sa réponse
+     * (compteurs et sens de mon vote exacts) au message concerné, sans affichage optimiste.
+     */
+    fun vote(commentId: Long, value: Int) {
+        viewModelScope.launch {
+            when (val result = commentRepo.vote(commentId, value)) {
+                is ApiResult.Success -> _state.update { state ->
+                    state.copy(threads = state.threads.applyVotes(result.data))
+                }
+                is ApiResult.Error -> _state.update {
+                    it.copy(actionError = result.userMessage())
+                }
+            }
+        }
+    }
+
     // ── Interne ───────────────────────────────────────────────────────────────
 
     private suspend fun applyCreate(
@@ -506,6 +525,30 @@ private fun List<ChapterCommentDto>.applyReactions(
             replies = thread.replies.map { reply ->
                 if (reply.id == updated.commentId) {
                     reply.copy(reactions = updated.reactions, myReactions = updated.myReactions)
+                } else {
+                    reply
+                }
+            },
+        )
+    }
+}
+
+/**
+ * Recopie les votes renvoyés par le serveur sur le message visé — racine ou réponse,
+ * cherché dans tout l'arbre. Même logique que [applyReactions] : les pouces ne
+ * connaissent que l'id du message, jamais sa racine.
+ */
+private fun List<ChapterCommentDto>.applyVotes(
+    updated: CommentVotesDto,
+): List<ChapterCommentDto> = map { thread ->
+    when {
+        thread.id == updated.commentId ->
+            thread.copy(likes = updated.likes, dislikes = updated.dislikes, myVote = updated.myVote)
+        else -> thread.copy(
+            replies = thread.replies.map { reply ->
+                if (reply.id == updated.commentId) {
+                    reply.copy(
+                        likes = updated.likes, dislikes = updated.dislikes, myVote = updated.myVote)
                 } else {
                     reply
                 }

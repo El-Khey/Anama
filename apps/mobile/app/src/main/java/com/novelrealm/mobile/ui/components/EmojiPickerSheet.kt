@@ -35,7 +35,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -44,8 +43,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -170,14 +167,14 @@ fun EmojiPickerSheet(
     }
 }
 
-/** Le champ de recherche, qui prend le clavier dès l'ouverture (comme le sélecteur de GIF). */
+/**
+ * Le champ de recherche d'emoji. Il ne prend PLUS le clavier tout seul à l'ouverture :
+ * on ouvre ce sélecteur pour RÉAGIR (choisir un emoji d'un tap), pas pour taper — un
+ * clavier qui surgit alors recouvrait la moitié des emojis et donnait l'impression
+ * qu'une réaction « ouvre le clavier ». Le champ prend le focus quand on le touche.
+ */
 @Composable
 private fun EmojiSearchField(query: String, onQueryChange: (String) -> Unit) {
-    val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
-        runCatching { focusRequester.requestFocus() }
-    }
-
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
         shape = RoundedCornerShape(23.dp),
@@ -210,9 +207,7 @@ private fun EmojiSearchField(query: String, onQueryChange: (String) -> Unit) {
                     ),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester),
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
             if (query.isNotEmpty()) {

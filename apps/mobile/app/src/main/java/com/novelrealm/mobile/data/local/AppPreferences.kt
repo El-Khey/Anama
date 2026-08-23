@@ -71,7 +71,7 @@ data class ReaderPrefs(
     val justify: Boolean = false,
     val theme: ReaderTheme = ReaderTheme.LIGHT,
     val keepScreenOn: Boolean = true,   // spécifique mobile
-    val fullscreen: Boolean = false,    // spécifique mobile (masque les barres système)
+    val fullscreen: Boolean = true,     // spécifique mobile (masque les barres système) — plein écran par défaut, la barre revient au tap ; le lecteur reste réglable
     /**
      * Marge latérale du texte, en dp (0 = le texte occupe toute la largeur).
      *
