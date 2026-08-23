@@ -4,11 +4,13 @@ import com.novelrealm.mobile.data.remote.ApiResult
 import com.novelrealm.mobile.data.remote.api.PassageApi
 import com.novelrealm.mobile.data.remote.dto.ChapterActivityDto
 import com.novelrealm.mobile.data.remote.dto.CommentReactionsDto
+import com.novelrealm.mobile.data.remote.dto.CommentVotesDto
 import com.novelrealm.mobile.data.remote.dto.CreatePassageCommentRequestDto
 import com.novelrealm.mobile.data.remote.dto.PassageCommentDto
 import com.novelrealm.mobile.data.remote.dto.PassageReactionDto
 import com.novelrealm.mobile.data.remote.dto.ReactToCommentRequestDto
 import com.novelrealm.mobile.data.remote.dto.ReactToPassageRequestDto
+import com.novelrealm.mobile.data.remote.dto.VoteRequestDto
 import com.novelrealm.mobile.data.remote.safeApiCall
 
 /**
@@ -60,6 +62,10 @@ class PassageRepository(private val passageApi: PassageApi) {
      */
     suspend fun reactToComment(annotationId: Long, emoji: String): ApiResult<CommentReactionsDto> =
         safeApiCall { passageApi.reactToComment(annotationId, ReactToCommentRequestDto(emoji)) }
+
+    /** Vote +1/-1 (ou retrait) sur un MESSAGE de passage ; renvoie l'état à jour des pouces. */
+    suspend fun voteComment(annotationId: Long, value: Int): ApiResult<CommentVotesDto> =
+        safeApiCall { passageApi.voteComment(annotationId, VoteRequestDto(value)) }
 
     suspend fun delete(annotationId: Long): ApiResult<Unit> =
         safeApiCall { passageApi.delete(annotationId) }

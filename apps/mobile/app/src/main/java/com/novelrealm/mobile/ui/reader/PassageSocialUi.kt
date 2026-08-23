@@ -4,7 +4,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -48,7 +48,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,8 +58,13 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -71,6 +78,8 @@ import com.novelrealm.mobile.data.repository.PassageRepository
 import com.novelrealm.mobile.ui.comments.CommentThread
 import com.novelrealm.mobile.ui.comments.toThreadComment
 import com.novelrealm.mobile.ui.components.MentionSuggestionRow
+import com.novelrealm.mobile.ui.theme.NovelCommentSheetDark
+import kotlinx.coroutines.launch
 
 // NB : `AttachedGifPreview` et `GifButton` viennent de ChapterComments.kt — même
 // paquet, pas d'import : les deux composers doivent rester identiques au pixel.
@@ -109,21 +118,21 @@ fun BlockMark(
     val ink = foreground.copy(alpha = 0.3f)
     val myReactions = activity.myReactions.toSet()
 
-    // Les puces à GAUCHE, le compteur de commentaires TOUJOURS à droite. `SpaceBetween`
-    // sépare les deux blocs sans dépendre d'un Spacer pondéré, qui décalait le 💬 quand
-    // il n'y avait pas de réaction.
+    // TOUT à DROITE, côte à côte : les emojis de réaction PUIS l'icône commentaire,
+    // collés l'un à l'autre au coin bas-droit du paragraphe. `Arrangement.End` pousse
+    // le groupe entier à droite ; les emojis défilent (`horizontalScroll`, pas FlowRow
+    // expérimental) et sont bornés par `weight(1f, fill = false)` pour ne jamais chasser
+    // le 💬 hors de l'écran.
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.End,
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 5.dp),
     ) {
-        // Bloc de gauche : les puces de réaction, sur une ligne qui défile si nombreuses
-        // (`horizontalScroll` et non FlowRow, expérimental — convention du projet). Prend
-        // la place restante sans écraser le 💬 (`weight(1f, fill = false)`).
+        // Les emojis, juste à gauche du 💬 — tout contre lui, pas à l'autre bout.
         Row(
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .weight(1f, fill = false)
@@ -140,12 +149,12 @@ fun BlockMark(
                 )
             }
         }
-        // Bloc de droite : le compteur de commentaires, discret — toucher ouvre la feuille.
+        // L'icône commentaire, tout de suite après les emojis — toucher ouvre la feuille.
         if (comments > 0) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .padding(start = 8.dp)
+                    .padding(start = 6.dp)
                     .clip(RoundedCornerShape(50))
                     .clickable(onClick = onClick)
                     .padding(horizontal = 4.dp, vertical = 2.dp),
@@ -162,10 +171,10 @@ fun BlockMark(
 }
 
 /**
- * Une puce de réaction sous un paragraphe : l'emoji + son compteur, **à la taille du
- * compteur de commentaires** et dans le même gris neutre — pas de teinte d'accent, qui
- * jurait avec le calme de la page. Sa réaction se repère à un simple liseré, pas à une
- * bulle colorée. Un tap la bascule (pose/retire).
+ * Une puce de réaction sous un paragraphe : l'emoji + son compteur dans une petite
+ * pastille arrondie **sans liseré** — le fond suffit à détacher la puce du texte, le
+ * contour l'alourdissait. Ma réaction à moi se repère au compteur en gras. Un tap la
+ * bascule (pose/retire).
  */
 @Composable
 private fun BlockReactionChip(
@@ -176,30 +185,23 @@ private fun BlockReactionChip(
     foreground: Color,
     onClick: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(6.dp)
     Row(
         verticalAlignment = Alignment.CenterVertically,
+        // La puce : un fond arrondi, mais PAS de bordure. La zone cliquable garde un
+        // padding confortable au doigt.
         modifier = Modifier
-            .clip(shape)
+            .clip(RoundedCornerShape(6.dp))
             .background(foreground.copy(alpha = 0.06f))
-            .then(
-                // Ma réaction : un liseré gris un peu plus marqué, pas de couleur.
-                if (mine) {
-                    Modifier.border(1.dp, foreground.copy(alpha = 0.28f), shape)
-                } else {
-                    Modifier
-                },
-            )
             .clickable(onClick = onClick)
             .padding(horizontal = 5.dp, vertical = 2.dp),
     ) {
-        Text(text = emoji, fontSize = 10.sp)
+        Text(text = emoji, fontSize = 11.sp)
         if (count > 0) {
             Spacer(Modifier.width(3.dp))
             Text(
                 text = "$count",
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                fontWeight = if (mine) FontWeight.SemiBold else FontWeight.Normal,
+                fontWeight = if (mine) FontWeight.Bold else FontWeight.Normal,
                 color = ink,
             )
         }
@@ -247,6 +249,7 @@ fun PassageThreadSheet(
     onDelete: (PassageCommentDto) -> Unit,
     onReply: (PassageCommentDto) -> Unit,
     onReactComment: (annotationId: Long, emoji: String) -> Unit,
+    onVoteComment: (annotationId: Long, value: Int) -> Unit,
     onCancelReply: () -> Unit,
     onDraftChange: (String) -> Unit,
     onToggleSpoiler: () -> Unit,
@@ -259,16 +262,146 @@ fun PassageThreadSheet(
     onRemoveGif: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // ── Glisser-pour-fermer, façon TikTok ────────────────────────────────────────
+    // La feuille suit le doigt vers le BAS, puis se ferme si on a tiré assez loin (ou
+    // vite), sinon revient en place avec un ressort. On branche le geste sur le
+    // `nestedScroll` : ainsi il cohabite avec le défilement du fil au lieu de le
+    // voler. Le fil défile normalement ; ce n'est QUE lorsqu'il est déjà tout en
+    // haut et qu'on continue à tirer vers le bas que le rab de scroll pousse la
+    // feuille. Inversement, un scroll vers le haut ramène d'abord la feuille en
+    // place avant de reprendre le défilement.
+    val scope = rememberCoroutineScope()
+    val dragOffset = remember { Animatable(0f) }
+    // Seuil de fermeture : ~18 % de la hauteur de la feuille, mesurée au vol.
+    var sheetHeightPx by remember { mutableStateOf(0f) }
+    val dismissThreshold = { if (sheetHeightPx > 0f) sheetHeightPx * 0.18f else 220f }
+    // Fermeture EN COURS : une fois qu'on a décidé de fermer, on ignore tout nouveau
+    // rab de geste (le fling résiduel du scroll, un second `onPreFling`…), sinon deux
+    // sources se disputent `dragOffset` et il peut se figer hors écran — d'où la feuille
+    // « ouverte mais invisible » qui refusait de se rouvrir.
+    var closing by remember { mutableStateOf(false) }
+    // À CHAQUE ouverture d'un bloc, on repart d'une feuille bien amarrée. On se cale sur
+    // `state.threadBlock` — l'identité du panneau ouvert — plutôt que sur le montage :
+    // `AnimatedVisibility` peut RECYCLER l'enfant sans le détruire (rouvrir juste après
+    // avoir fermé), et un `LaunchedEffect(Unit)` ne se rejouerait alors pas — la feuille
+    // resterait figée hors écran avec un `dragOffset` résiduel, « ouverte mais invisible ».
+    //
+    // MAIS on ne remet à zéro QU'À L'OUVERTURE (threadBlock non nul). Le faire aussi à la
+    // FERMETURE (threadBlock -> null) ramènerait la feuille d'un coup en position 0 en
+    // plein glissement du doigt : c'est le « rollback » qu'on voyait avant le slide-out.
+    // À la fermeture, on ne touche donc plus à `dragOffset` — `AnimatedVisibility` glisse
+    // la feuille (déjà décalée par le doigt) proprement vers le bas.
+    LaunchedEffect(state.threadBlock) {
+        if (state.threadBlock != null) {
+            dragOffset.snapTo(0f)
+            closing = false
+        }
+    }
+
+    // `onClose` en clé : si la surface change de rappel, la connection le suit au lieu
+    // de retenir l'ancien (le reste — scope, Animatable, mesure — est stable).
+    val nestedScroll = remember(onClose) {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            // Convention (VÉRIFIÉE sur l'appareil, pas en théorie — c'est le symptôme du
+            // bug qui l'a tranchée) : dans `available`, y > 0 = geste vers le BAS (le doigt
+            // descend), y < 0 = geste vers le HAUT. On s'en sert pour deux choses.
+            //
+            // AVANT que le fil ne défile : si la feuille est DÉJÀ décalée et qu'on remonte
+            // le doigt (y < 0), on ré-amarre la feuille d'ABORD — on la ramène vers 0 avant
+            // de rendre la main au défilement. Sinon le fil se remettrait à défiler alors
+            // que la feuille est encore pendante.
+            override fun onPreScroll(
+                available: androidx.compose.ui.geometry.Offset,
+                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource,
+            ): androidx.compose.ui.geometry.Offset {
+                if (closing) return available
+                val dy = available.y
+                return if (dy < 0f && dragOffset.value > 0f) {
+                    // Geste vers le haut (dy < 0) : on réduit le décalage, sans dépasser 0.
+                    // On consomme exactement ce qu'on a absorbé (borné par le décalage restant).
+                    val consume = -minOf(-dy, dragOffset.value)
+                    scope.launch { dragOffset.snapTo((dragOffset.value + consume).coerceAtLeast(0f)) }
+                    androidx.compose.ui.geometry.Offset(0f, consume)
+                } else {
+                    androidx.compose.ui.geometry.Offset.Zero
+                }
+            }
+
+            // APRÈS le fil : le rab que le fil n'a pas pu consommer parce qu'il est en
+            // butée. On ne réagit QU'au geste vers le BAS en butée HAUTE (y > 0 non
+            // consommé alors que le fil est déjà tout en haut) : c'est le vrai début d'un
+            // glissement de fermeture. Un geste vers le HAUT (y < 0, ex. on remonte le
+            // contenu déjà en haut) ne doit RIEN faire — c'était lui qui faisait « flotter »
+            // la feuille vers le bas au lieu de la laisser ancrée en haut. C'ÉTAIT LE BUG.
+            override fun onPostScroll(
+                consumed: androidx.compose.ui.geometry.Offset,
+                available: androidx.compose.ui.geometry.Offset,
+                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource,
+            ): androidx.compose.ui.geometry.Offset {
+                if (closing) return available
+                val dy = available.y
+                // Seul un geste par le doigt (drag) peut ouvrir la fermeture — on ignore
+                // le rab d'un fling, qui ferait sauter la feuille de façon incontrôlée.
+                // `UserInput` est le nom 1.7 de l'ancien `Drag` (déprécié).
+                val fromDrag = source == androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput
+                return if (dy > 0f && fromDrag) {
+                    // dy > 0 = vers le bas : on décale la feuille de dy, freiné (×0.5).
+                    scope.launch { dragOffset.snapTo(dragOffset.value + dy * 0.5f) }
+                    androidx.compose.ui.geometry.Offset(0f, dy)
+                } else {
+                    androidx.compose.ui.geometry.Offset.Zero
+                }
+            }
+
+            // Au lâcher : passé le seuil (ou lancé vite vers le bas), on ferme ;
+            // sinon la feuille revient se caler en haut.
+            override suspend fun onPreFling(
+                available: androidx.compose.ui.unit.Velocity,
+            ): androidx.compose.ui.unit.Velocity {
+                if (closing) return available
+                if (dragOffset.value > 0f) {
+                    val shouldDismiss =
+                        dragOffset.value > dismissThreshold() || available.y > 1800f
+                    if (shouldDismiss) {
+                        // On ferme : `AnimatedVisibility` (slideOutVertically) joue déjà la
+                        // sortie vers le bas — inutile d'animer `dragOffset` nous-mêmes, ça
+                        // ferait doublon ET entrerait en conflit avec le reset d'ouverture.
+                        closing = true
+                        onClose()
+                    } else {
+                        dragOffset.animateTo(0f, tween(durationMillis = 220))
+                    }
+                    return available
+                }
+                return androidx.compose.ui.unit.Velocity.Zero
+            }
+        }
+    }
+
+    // Fond de la feuille : en thème sombre, un gris TikTok neutre et profond
+    // (`NovelCommentSheetDark`) plutôt que le `surface` par défaut, un peu chaud. En
+    // thème clair on garde `surface` : la même couleur en dur y jurerait. On tranche sur
+    // la luminance du `surface` courant — robuste aux thèmes de lecteur (sépia, OLED…)
+    // qui ne passent pas par `isSystemInDarkTheme`.
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val sheetColor = if (surfaceColor.luminance() < 0.5f) NovelCommentSheetDark else surfaceColor
+
     Surface(
-        color = MaterialTheme.colorScheme.surface,
+        color = sheetColor,
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        tonalElevation = 6.dp,
+        // `tonalElevation = 0` : avec `surfaceTint = White`, une élévation tonale
+        // reteinterait `sheetColor` vers un gris plus clair — on veut EXACTEMENT la
+        // couleur choisie. Le relief vient de l'ombre (`shadowElevation`), pas du ton.
+        tonalElevation = 0.dp,
         shadowElevation = 20.dp,
         modifier = modifier
             // Feuille haute façon TikTok : ~70 % de l'écran, plutôt que de s'ajuster au
             // contenu (elle était minuscule). Le fil prend toute la place disponible.
             .fillMaxWidth()
             .fillMaxHeight(0.7f)
+            .onGloballyPositioned { sheetHeightPx = it.size.height.toFloat() }
+            .graphicsLayer { translationY = dragOffset.value }
+            .nestedScroll(nestedScroll)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -280,7 +413,42 @@ fun PassageThreadSheet(
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)),
         ) {
             // En-tête TikTok : poignée, titre « N commentaires » CENTRÉ, croix à droite.
-            Box(modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp)
+                    // L'en-tête n'est pas défilable : le `nestedScroll` ne peut donc pas
+                    // y capter le glissement. On y pose un geste vertical direct, qui
+                    // pilote le MÊME `dragOffset` — le handle et le titre deviennent une
+                    // vraie prise pour tirer la feuille vers le bas.
+                    .pointerInput(Unit) {
+                        detectVerticalDragGestures(
+                            onVerticalDrag = { _, dy ->
+                                if (!closing) {
+                                    scope.launch {
+                                        dragOffset.snapTo((dragOffset.value + dy).coerceAtLeast(0f))
+                                    }
+                                }
+                            },
+                            onDragEnd = {
+                                if (closing) return@detectVerticalDragGestures
+                                if (dragOffset.value > dismissThreshold()) {
+                                    // Fermeture : on laisse `AnimatedVisibility` glisser la
+                                    // feuille dehors (pas d'animation manuelle en doublon).
+                                    closing = true
+                                    onClose()
+                                } else {
+                                    scope.launch { dragOffset.animateTo(0f, tween(durationMillis = 220)) }
+                                }
+                            },
+                            onDragCancel = {
+                                if (!closing) {
+                                    scope.launch { dragOffset.animateTo(0f, tween(durationMillis = 220)) }
+                                }
+                            },
+                        )
+                    },
+            ) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
@@ -343,10 +511,14 @@ fun PassageThreadSheet(
                         // tout l'espace entre l'en-tête et le composeur (`weight(1f)`), et
                         // défile à l'intérieur. Le composeur, sans poids, garde sa taille —
                         // c'est ce qui l'empêchait de s'aplatir quand le clavier monte.
+                        // PAS de padding horizontal ici : le survol des commentaires doit
+                        // aller bord à bord — c'est `CommentThread(contentInset = …)` qui
+                        // rentre le contenu. Les autres états (vide, chargement) reçoivent
+                        // donc leur propre marge latérale.
                         .weight(1f)
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(vertical = 8.dp),
                 ) {
                     when {
                         state.threadLoading -> Box(
@@ -363,7 +535,7 @@ fun PassageThreadSheet(
                             text = "Personne n'a encore réagi à ce passage.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 14.dp),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
                         )
 
                         else -> state.thread.forEach { root ->
@@ -381,8 +553,11 @@ fun PassageThreadSheet(
                                 onToggleReaction = { comment, _, emoji ->
                                     onReactComment(comment.id, emoji)
                                 },
+                                onVote = { comment, _, value ->
+                                    onVoteComment(comment.id, value)
+                                },
                                 onOpenUser = onOpenUser,
-                                modifier = Modifier.padding(bottom = 10.dp),
+                                modifier = Modifier.padding(bottom = 16.dp),
                             )
                         }
                     }

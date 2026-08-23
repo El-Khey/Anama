@@ -41,9 +41,22 @@ CREATE INDEX IF NOT EXISTS idx_passage_annotation_chapter_kind_block
 --
 -- Index partiel : la contrainte ne concerne que les réactions. Les
 -- citations, elles, peuvent être multiples sur un même passage.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_passage_annotation_one_reaction_per_passage
-    ON passage_annotation (user_id, chapter_id, text_hash)
-    WHERE kind = 'REACTION';
+--
+-- NEUTRALISÉ (2026-08-23) — cet index unique « une réaction par passage et
+-- par lecteur » est devenu FAUX depuis le passage au multi-emoji : un lecteur
+-- peut désormais poser plusieurs réactions sur le même passage. La migration
+-- 2026-08-22_block_reactions_multi.sql le supprime (DROP INDEX IF EXISTS).
+--
+-- Problème : `make migrate` rejoue TOUTES les migrations à chaque fois. Sur une
+-- base qui contient déjà des réactions multi-emoji, ce CREATE UNIQUE INDEX
+-- échouait (« Key ... is duplicated ») AVANT d'atteindre le DROP du 08-22, et
+-- cassait toute la migration. On le retire donc ici : il n'est plus dans
+-- 01_init.sql, il est droppé par le 08-22, aucun code n'en dépend — le schéma
+-- final est identique, la migration redevient simplement rejouable.
+--
+-- CREATE UNIQUE INDEX IF NOT EXISTS uq_passage_annotation_one_reaction_per_passage
+--     ON passage_annotation (user_id, chapter_id, text_hash)
+--     WHERE kind = 'REACTION';
 
 -- ─────────────── Fil d'un passage, du plus ancien au plus récent ─────
 -- Interrogé par EMPREINTE et non par index, pour la même raison : après

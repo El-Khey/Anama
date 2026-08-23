@@ -4,10 +4,12 @@ import com.novelrealm.mobile.data.remote.ApiResult
 import com.novelrealm.mobile.data.remote.api.CommentApi
 import com.novelrealm.mobile.data.remote.dto.ChapterCommentDto
 import com.novelrealm.mobile.data.remote.dto.CommentReactionsDto
+import com.novelrealm.mobile.data.remote.dto.CommentVotesDto
 import com.novelrealm.mobile.data.remote.dto.CreateCommentRequestDto
 import com.novelrealm.mobile.data.remote.dto.PageDto
 import com.novelrealm.mobile.data.remote.dto.ReactToCommentRequestDto
 import com.novelrealm.mobile.data.remote.dto.UpdateCommentRequestDto
+import com.novelrealm.mobile.data.remote.dto.VoteRequestDto
 import com.novelrealm.mobile.data.remote.safeApiCall
 
 // Messages de fin de chapitre : fils paginés, compteurs, et gestion des siens.
@@ -65,6 +67,10 @@ class CommentRepository(private val commentApi: CommentApi) {
     /** Pose ou retire une réaction emoji ; renvoie l'état à jour des réactions du message. */
     suspend fun react(commentId: Long, emoji: String): ApiResult<CommentReactionsDto> =
         safeApiCall { commentApi.react(commentId, ReactToCommentRequestDto(emoji)) }
+
+    /** Vote +1/-1 (ou retrait) ; renvoie l'état à jour des pouces du message. */
+    suspend fun vote(commentId: Long, value: Int): ApiResult<CommentVotesDto> =
+        safeApiCall { commentApi.vote(commentId, VoteRequestDto(value)) }
 
     suspend fun delete(commentId: Long): ApiResult<Unit> =
         safeApiCall { commentApi.delete(commentId) }

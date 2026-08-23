@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.novelrealm.mobile.data.remote.ApiResult
 import com.novelrealm.mobile.data.remote.dto.BlockActivityDto
 import com.novelrealm.mobile.data.remote.dto.CommentReactionsDto
+import com.novelrealm.mobile.data.remote.dto.CommentVotesDto
 import com.novelrealm.mobile.data.remote.dto.GifDto
 import com.novelrealm.mobile.data.remote.dto.PassageCommentDto
 import com.novelrealm.mobile.data.remote.dto.UserSearchDto
@@ -404,6 +405,21 @@ class PassageSocialViewModel(private val chapterId: Long) : ViewModel() {
         }
     }
 
+    /**
+     * Vote (pouce vert / rouge) sur un message de passage. Même logique que
+     * [reactToComment] : le serveur tranche, on applique sa réponse au message visé.
+     */
+    fun voteComment(annotationId: Long, value: Int) {
+        viewModelScope.launch {
+            when (val result = passageRepo.voteComment(annotationId, value)) {
+                is ApiResult.Success -> _state.update {
+                    it.copy(thread = it.thread.applyVotes(result.data))
+                }
+                is ApiResult.Error -> _state.update { it.copy(error = result.userMessage()) }
+            }
+        }
+    }
+
     fun errorShown() = _state.update { it.copy(error = null) }
 
     /** Recharge le fil sans vider l'affichage : on corrige, on ne fait pas clignoter. */
@@ -447,6 +463,29 @@ private fun List<PassageCommentDto>.applyReactions(
             replies = root.replies.map { reply ->
                 if (reply.id == updated.commentId) {
                     reply.copy(reactions = updated.reactions, myReactions = updated.myReactions)
+                } else {
+                    reply
+                }
+            },
+        )
+    }
+}
+
+/**
+ * Recopie les votes renvoyés par le serveur sur le message visé — racine ou réponse,
+ * cherché dans tout le fil. Même logique que [applyReactions].
+ */
+private fun List<PassageCommentDto>.applyVotes(
+    updated: CommentVotesDto,
+): List<PassageCommentDto> = map { root ->
+    when {
+        root.id == updated.commentId ->
+            root.copy(likes = updated.likes, dislikes = updated.dislikes, myVote = updated.myVote)
+        else -> root.copy(
+            replies = root.replies.map { reply ->
+                if (reply.id == updated.commentId) {
+                    reply.copy(
+                        likes = updated.likes, dislikes = updated.dislikes, myVote = updated.myVote)
                 } else {
                     reply
                 }

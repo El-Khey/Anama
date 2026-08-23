@@ -20,6 +20,10 @@ import java.util.List;
  * <p>{@code reactions} : les réactions emoji posées sur ce message, décomptées par
  * emoji (les plus posées d'abord). {@code myReactions} : celles que le lecteur
  * courant a lui-même posées, pour surligner ses puces côté client.
+ *
+ * <p>{@code likes}/{@code dislikes} : les pouces verts / rouges posés sur ce message.
+ * {@code myVote} : le sens de MON vote — {@code +1}, {@code -1}, ou {@code 0} si je
+ * n'ai pas voté ; le client colore ses pouces d'après cette valeur.
  */
 public record PassageCommentResponse(
         Long id,
@@ -35,5 +39,8 @@ public record PassageCommentResponse(
         String gifPreviewUrl,
         List<EmojiTallyResponse> reactions,
         List<String> myReactions,
+        long likes,
+        long dislikes,
+        int myVote,
         List<PassageCommentResponse> replies
 ) {}

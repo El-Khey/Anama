@@ -2,31 +2,20 @@ package com.novelrealm.mobile.ui.components
 
 import android.os.Build
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.boundsInWindow
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -61,27 +50,16 @@ fun rememberGifLoader(): ImageLoader {
 }
 
 /**
- * Un GIF dans un fil de commentaires (issue #45, §5) — **animé quand il est à
- * l'écran, figé sinon**.
+ * Un GIF dans un fil de commentaires (issue #45, §5) — **animé en permanence**.
  *
- * Le compromis se joue sur la bande passante, et l'écart est énorme : la version
- * animée pèse en moyenne **trente fois** l'image fixe (mesuré sur le catalogue :
- * 5 à 400 Ko contre 5 à 10 Ko). Tout animer en permanence, ce serait télécharger
- * un mégaoctet et demi pour six messages, et faire tourner autant de décodeurs
- * vidéo miniatures — y compris pour des GIF situés trois écrans plus bas.
+ * On a d'abord bridé l'animation (visible à l'écran seulement, pause au tap) pour
+ * la bande passante : la version animée pèse en moyenne trente fois l'image fixe.
+ * Mais le rendu figé donnait une impression de commentaires « morts », et le choix
+ * produit est d'assumer la data pour que les GIF vivent partout, tout le temps.
  *
- * D'où la règle : **rien ne s'anime tant que ce n'est pas visible**. Un GIF hors
- * champ n'est même pas téléchargé ; il affiche sa vignette de 8 Ko. Dès qu'il
- * entre dans l'écran il s'anime tout seul, comme partout ailleurs, et il se
- * rendort en sortant. La discussion d'un chapitre vit dans une colonne défilante
- * ordinaire — tout y est composé d'un coup, y compris ce qui est loin sous le
- * pli — donc sans cette règle, ouvrir un chapitre déclencherait le
- * téléchargement de TOUS les GIF de la page à la fois.
- *
- * Un appui met en pause (ou relance) celui qu'on a sous les yeux.
- *
- * Le ratio est fixé AVANT chargement par les dimensions renvoyées par l'API :
- * le fil ne saute pas quand l'image arrive.
+ * La vignette figée reste dessous : elle occupe le cadre pendant que l'animé se
+ * télécharge, et évite le clignotement gris. Le ratio est fixé AVANT chargement
+ * par les dimensions renvoyées par l'API : le fil ne saute pas quand l'image arrive.
  */
 @Composable
 fun CommentGif(
@@ -91,10 +69,6 @@ fun CommentGif(
     height: Int,
     modifier: Modifier = Modifier,
 ) {
-    var onScreen by remember(gifUrl) { mutableStateOf(false) }
-    var pausedByUser by remember(gifUrl) { mutableStateOf(false) }
-    val playing = onScreen && !pausedByUser
-
     val ratio = if (width > 0 && height > 0) width.toFloat() / height else 4f / 3f
     val gifLoader = rememberGifLoader()
 
@@ -103,57 +77,26 @@ fun CommentGif(
             .widthIn(max = 240.dp)
             .aspectRatio(ratio)
             .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
-            .onGloballyPositioned { coordinates ->
-                // `boundsInWindow` est DÉJÀ rognée par les découpes des parents :
-                // un GIF sorti de la zone défilante y répond par un rectangle
-                // vide. Pas de calcul de position à la main, pas de hauteur
-                // d'écran à deviner.
-                val bounds = coordinates.boundsInWindow()
-                onScreen = bounds.width > 0f && bounds.height > 0f
-            }
-            .clickable { pausedByUser = !pausedByUser },
+            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)),
     ) {
-        // La vignette figée reste TOUJOURS dessous : c'est elle qui occupe le
-        // cadre pendant que l'animé se télécharge, et qui évite le clignotement
-        // gris à chaque entrée dans l'écran.
+        // La vignette figée reste dessous : elle occupe le cadre pendant que l'animé
+        // se télécharge (image fixe du fournisseur ; à défaut le GIF passé au loader
+        // PAR DÉFAUT de Coil, qui n'en décode que la première image).
         AsyncImage(
-            // L'image fixe du fournisseur ; à défaut le GIF passé au loader PAR
-            // DÉFAUT de Coil (sans décodeur GIF), qui n'en décode que la première
-            // image — exactement l'effet recherché.
             model = previewUrl ?: gifUrl,
             contentDescription = "GIF",
             contentScale = ContentScale.Crop,
             modifier = Modifier.matchParentSize(),
         )
 
-        if (playing) {
-            AsyncImage(
-                model = gifUrl,
-                contentDescription = null,
-                imageLoader = gifLoader,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.matchParentSize(),
-            )
-        } else if (pausedByUser) {
-            // Le triangle n'apparaît QUE sur une pause volontaire : l'afficher
-            // aussi hors champ ferait clignoter un bouton à chaque défilement.
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.45f)),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = "Relancer le GIF",
-                    tint = Color.White,
-                    modifier = Modifier.size(24.dp),
-                )
-            }
-        }
+        // Le GIF animé, toujours joué, via le loader à décodeur GIF.
+        AsyncImage(
+            model = gifUrl,
+            contentDescription = null,
+            imageLoader = gifLoader,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.matchParentSize(),
+        )
 
         GifBadge(modifier = Modifier.align(Alignment.BottomStart).padding(6.dp))
     }

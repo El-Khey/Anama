@@ -418,6 +418,7 @@ fun ReaderScreen(
                         onEditComment = commentsViewModel::startEdit,
                         onDeleteComment = commentsViewModel::delete,
                         onReactComment = commentsViewModel::react,
+                        onVoteComment = commentsViewModel::vote,
                         onLoadMoreComments = commentsViewModel::loadMore,
                         onRetryComments = commentsViewModel::load,
                         onOpenUser = onOpenUser,
@@ -665,6 +666,7 @@ fun ReaderScreen(
                 onDelete = passageViewModel::delete,
                 onReply = passageViewModel::startReply,
                 onReactComment = passageViewModel::reactToComment,
+                onVoteComment = passageViewModel::voteComment,
                 onCancelReply = passageViewModel::cancelReply,
                 onDraftChange = passageViewModel::setDraft,
                 onToggleSpoiler = passageViewModel::toggleSpoiler,
@@ -796,6 +798,7 @@ private fun ChapterBody(
     onEditComment: (comment: ChapterCommentDto, rootId: Long?) -> Unit,
     onDeleteComment: (comment: ChapterCommentDto, rootId: Long?) -> Unit,
     onReactComment: (commentId: Long, emoji: String) -> Unit,
+    onVoteComment: (commentId: Long, value: Int) -> Unit,
     onLoadMoreComments: () -> Unit,
     onRetryComments: () -> Unit,
     onOpenUser: (Long) -> Unit,
@@ -914,10 +917,9 @@ private fun ChapterBody(
                     }
                 }
 
-                // Pile sous le paragraphe : soit la barre de réaction rapide (pendant le
-                // double tap), soit les marques d'activité. La barre PREND LA PLACE des
-                // marques le temps du choix — elle apparaît donc exactement où elles
-                // vivent, sur la ligne sous le paragraphe, et non par-dessus le texte.
+                // Sous le paragraphe : la barre de réaction rapide (pendant le double tap)
+                // s'AJOUTE au-dessus des marques, sans jamais les remplacer — on ne veut
+                // pas voir les emojis déjà posés ni le 💬 disparaître pendant qu'on choisit.
                 if (reactionBarBlock == index) {
                     Row(
                         modifier = Modifier
@@ -935,20 +937,19 @@ private fun ChapterBody(
                             },
                         )
                     }
-                } else {
-                    activity[index]?.let { blockActivity ->
-                        BlockMark(
-                            activity = blockActivity,
-                            foreground = style.foreground,
-                            showComments = showInTextComments,
-                            showReactions = showInTextReactions,
-                            onClick = {
-                                if (showInTextComments) onOpenThread(index)
-                                else onSelectBlock(index, paragraph)
-                            },
-                            onToggleReaction = { emoji -> onReactToBlock(index, emoji) },
-                        )
-                    }
+                }
+                activity[index]?.let { blockActivity ->
+                    BlockMark(
+                        activity = blockActivity,
+                        foreground = style.foreground,
+                        showComments = showInTextComments,
+                        showReactions = showInTextReactions,
+                        onClick = {
+                            if (showInTextComments) onOpenThread(index)
+                            else onSelectBlock(index, paragraph)
+                        },
+                        onToggleReaction = { emoji -> onReactToBlock(index, emoji) },
+                    )
                 }
             }
         }
@@ -1008,6 +1009,7 @@ private fun ChapterBody(
             onEdit = onEditComment,
             onDelete = onDeleteComment,
             onReact = onReactComment,
+            onVote = onVoteComment,
             onLoadMore = onLoadMoreComments,
             onRetry = onRetryComments,
             onOpenUser = onOpenUser,

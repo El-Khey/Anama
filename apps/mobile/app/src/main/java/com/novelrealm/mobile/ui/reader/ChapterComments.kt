@@ -87,6 +87,7 @@ fun ChapterCommentsSection(
     onEdit: (comment: ChapterCommentDto, rootId: Long?) -> Unit,
     onDelete: (comment: ChapterCommentDto, rootId: Long?) -> Unit,
     onReact: (commentId: Long, emoji: String) -> Unit,
+    onVote: (commentId: Long, value: Int) -> Unit,
     onLoadMore: () -> Unit,
     onRetry: () -> Unit,
     onOpenUser: (Long) -> Unit,
@@ -136,7 +137,7 @@ fun ChapterCommentsSection(
 
             else -> {
                 state.threads.forEach { thread ->
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(16.dp))
                     // Le fil est rendu par le composant PARTAGE avec les passages :
                     // une seule mise en forme pour les deux surfaces (issue #45, §6).
                     // La correspondance id -> DTO permet de rendre au ViewModel
@@ -163,7 +164,12 @@ fun ChapterCommentsSection(
                             }
                         },
                         onToggleReaction = { comment, _, emoji -> onReact(comment.id, emoji) },
+                        onVote = { comment, _, value -> onVote(comment.id, value) },
                         onOpenUser = onOpenUser,
+                        // La marge de lecture est déjà posée par le lecteur (buttonInset)
+                        // autour de cette section : pas de second inset ici, sinon le
+                        // survol s'arrêterait avant les bords de la colonne de texte.
+                        contentInset = 0.dp,
                     )
                 }
 

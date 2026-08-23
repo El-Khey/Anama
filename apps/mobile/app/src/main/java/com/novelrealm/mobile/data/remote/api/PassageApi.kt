@@ -2,11 +2,13 @@ package com.novelrealm.mobile.data.remote.api
 
 import com.novelrealm.mobile.data.remote.dto.ChapterActivityDto
 import com.novelrealm.mobile.data.remote.dto.CommentReactionsDto
+import com.novelrealm.mobile.data.remote.dto.CommentVotesDto
 import com.novelrealm.mobile.data.remote.dto.CreatePassageCommentRequestDto
 import com.novelrealm.mobile.data.remote.dto.PassageCommentDto
 import com.novelrealm.mobile.data.remote.dto.PassageReactionDto
 import com.novelrealm.mobile.data.remote.dto.ReactToCommentRequestDto
 import com.novelrealm.mobile.data.remote.dto.ReactToPassageRequestDto
+import com.novelrealm.mobile.data.remote.dto.VoteRequestDto
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -55,6 +57,13 @@ interface PassageApi {
         @Path("annotationId") annotationId: Long,
         @Body body: ReactToCommentRequestDto,
     ): CommentReactionsDto
+
+    /** Pouce vert (+1) ou rouge (-1), ou retrait, sur un MESSAGE de passage. */
+    @PUT("api/passages/comments/{annotationId}/vote")
+    suspend fun voteComment(
+        @Path("annotationId") annotationId: Long,
+        @Body body: VoteRequestDto,
+    ): CommentVotesDto
 
     @DELETE("api/passages/annotations/{annotationId}")
     suspend fun delete(@Path("annotationId") annotationId: Long)

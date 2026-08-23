@@ -315,6 +315,29 @@ CREATE TABLE IF NOT EXISTS comment_reaction (
 CREATE INDEX IF NOT EXISTS idx_comment_reaction_source
     ON comment_reaction (source_kind, source_id);
 
+-- Votes (pouce vert / pouce rouge) sur les commentaires.
+-- Polymorphe comme comment_reaction : source_kind + source_id désignent la
+-- ligne, pas de FK possible — les services purgent les votes des commentaires
+-- supprimés. value ∈ {-1, +1} : « neutre » = absence de ligne, jamais 0.
+-- UNIQUE (source_kind, source_id, user_id) : un seul vote par lecteur et par
+-- message (changer d'avis met à jour la ligne, revoter le même sens la retire).
+-- Détail complet et rationale : db/migrations/2026-08-23_comment_votes.sql
+CREATE TABLE IF NOT EXISTS comment_vote (
+    id           BIGSERIAL PRIMARY KEY,
+    source_kind  VARCHAR(20) NOT NULL
+                 CHECK (source_kind IN ('CHAPTER_COMMENT', 'PASSAGE_COMMENT')),
+    source_id    BIGINT NOT NULL,
+    user_id      BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    value        SMALLINT NOT NULL CHECK (value IN (-1, 1)),
+    created_at   TIMESTAMP NOT NULL,
+    CONSTRAINT comment_vote_once_uq
+        UNIQUE (source_kind, source_id, user_id)
+);
+
+-- Les votes d'une page de fils, en une requête.
+CREATE INDEX IF NOT EXISTS idx_comment_vote_source
+    ON comment_vote (source_kind, source_id);
+
 -- ──────────────── Notifications (issue #45, §3) ──────────────────────
 -- La cloche : réponses à mes commentaires, mentions. Le CHECK réserve
 -- NEW_CHAPTER pour l'issue #22, qui se greffera ici sans migration.

@@ -35,7 +35,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -44,9 +43,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -72,11 +71,18 @@ fun EmojiPickerSheet(
     val results = remember(query) { EmojiCatalog.search(query) }
     val searching = query.isNotBlank()
 
+    // Fond dédié : en thème sombre un gris neutre un peu plus clair que le fond, pour que
+    // la feuille se DÉTACHE nettement (le `surface` par défaut se confond avec la page).
+    // En clair on garde `surface`. On tranche sur la luminance — robuste aux thèmes lecteur.
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val sheetColor =
+        if (surfaceColor.luminance() < 0.5f) Color(0xFF1C1C22) else surfaceColor
+
     Surface(
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        tonalElevation = 6.dp,
-        shadowElevation = 16.dp,
+        color = sheetColor,
+        shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
+        tonalElevation = 0.dp,
+        shadowElevation = 24.dp,
         modifier = modifier
             .fillMaxWidth()
             .clickable(
@@ -88,35 +94,52 @@ fun EmojiPickerSheet(
         Column(
             modifier = Modifier
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
-                .padding(horizontal = 14.dp)
-                .padding(top = 10.dp, bottom = 12.dp),
+                .padding(horizontal = 18.dp)
+                .padding(top = 10.dp, bottom = 14.dp),
         ) {
-            // Poignée + fermeture, comme les autres feuilles du lecteur.
-            Box(modifier = Modifier.fillMaxWidth()) {
+            // Poignée centrée.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .size(width = 36.dp, height = 4.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)),
+            )
+
+            Spacer(Modifier.height(16.dp))
+            // En-tête : titre à gauche, croix ronde discrète à droite.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = "Réactions",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
                 Box(
+                    contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(width = 38.dp, height = 4.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)),
-                )
-                Icon(
-                    imageVector = Icons.Filled.Close,
-                    contentDescription = "Fermer",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
+                        .size(30.dp)
                         .clip(CircleShape)
-                        .clickable(onClick = onClose)
-                        .padding(7.dp)
-                        .size(17.dp),
-                )
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                        .clickable(onClick = onClose),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Fermer",
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(14.dp))
             EmojiSearchField(query = query, onQueryChange = { query = it })
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(14.dp))
             if (searching && results.isEmpty()) {
                 Box(
                     contentAlignment = Alignment.Center,
@@ -134,19 +157,20 @@ fun EmojiPickerSheet(
                 val current = EmojiCatalog.CATEGORIES[category]
                 LazyVerticalGrid(
                     state = gridState,
-                    columns = GridCells.Fixed(8),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    columns = GridCells.Fixed(7),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                     modifier = Modifier.fillMaxWidth().height(300.dp),
                 ) {
                     if (!searching) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
                             Text(
-                                text = current.label,
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(vertical = 4.dp),
+                                text = current.label.uppercase(),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
+                                modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
                             )
                         }
                     }
@@ -160,6 +184,14 @@ fun EmojiPickerSheet(
             // Onglets de catégorie, masqués pendant une recherche (les résultats
             // traversent déjà toutes les catégories).
             if (!searching) {
+                Spacer(Modifier.height(10.dp))
+                // Filet fin au-dessus des onglets, pour les séparer de la grille.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)),
+                )
                 Spacer(Modifier.height(8.dp))
                 CategoryTabs(
                     selected = category,
@@ -170,89 +202,93 @@ fun EmojiPickerSheet(
     }
 }
 
-/** Le champ de recherche, qui prend le clavier dès l'ouverture (comme le sélecteur de GIF). */
+/**
+ * Le champ de recherche d'emoji. Il ne prend PLUS le clavier tout seul à l'ouverture :
+ * on ouvre ce sélecteur pour RÉAGIR (choisir un emoji d'un tap), pas pour taper — un
+ * clavier qui surgit alors recouvrait la moitié des emojis et donnait l'impression
+ * qu'une réaction « ouvre le clavier ». Le champ prend le focus quand on le touche.
+ */
 @Composable
 private fun EmojiSearchField(query: String, onQueryChange: (String) -> Unit) {
-    val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
-        runCatching { focusRequester.requestFocus() }
-    }
-
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-        shape = RoundedCornerShape(23.dp),
-        modifier = Modifier.fillMaxWidth(),
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
+            .padding(horizontal = 13.dp, vertical = 10.dp),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Search,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Box(modifier = Modifier.weight(1f)) {
-                if (query.isEmpty()) {
-                    Text(
-                        text = "Trouve la réaction parfaite…",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    )
-                }
-                BasicTextField(
-                    value = query,
-                    onValueChange = onQueryChange,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        color = MaterialTheme.colorScheme.onSurface,
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester),
+        Icon(
+            imageVector = Icons.Filled.Search,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(9.dp))
+        Box(modifier = Modifier.weight(1f)) {
+            if (query.isEmpty()) {
+                Text(
+                    text = "Rechercher…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                 )
             }
-            if (query.isNotEmpty()) {
+            BasicTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    color = MaterialTheme.colorScheme.onSurface,
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (query.isNotEmpty()) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+                    .clickable { onQueryChange("") },
+            ) {
                 Icon(
                     imageVector = Icons.Filled.Close,
                     contentDescription = "Effacer",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .clickable { onQueryChange("") }
-                        .padding(4.dp)
-                        .size(14.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    modifier = Modifier.size(12.dp),
                 )
             }
         }
     }
 }
 
-/** Une case d'emoji dans la grille — carrée, l'emoji centré. */
+/** Une case d'emoji dans la grille — carrée, l'emoji centré, léger fond au survol tactile. */
 @Composable
 private fun EmojiCell(emoji: String, onClick: () -> Unit) {
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .aspectRatio(1f)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(10.dp))
             .clickable(onClick = onClick),
     ) {
-        Text(text = emoji, fontSize = 24.sp)
+        Text(text = emoji, fontSize = 25.sp)
     }
 }
 
 /**
  * La barre d'onglets de catégorie, en bas (schéma clavier emoji). Le premier emoji de
- * chaque catégorie sert d'icône d'onglet — pas de libellé, la place manque.
+ * chaque catégorie sert d'icône d'onglet — pas de libellé, la place manque. L'onglet
+ * actif porte une pastille pleine (accent) : la sélection se voit d'un coup d'œil.
  */
 @Composable
 private fun CategoryTabs(selected: Int, onSelect: (Int) -> Unit) {
+    val accent = MaterialTheme.colorScheme.primary
     Row(
         horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth(),
     ) {
         EmojiCatalog.CATEGORIES.forEachIndexed { index, category ->
@@ -260,18 +296,18 @@ private fun CategoryTabs(selected: Int, onSelect: (Int) -> Unit) {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .size(36.dp)
+                    .clip(CircleShape)
                     .background(
-                        if (active) {
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-                        } else {
-                            androidx.compose.ui.graphics.Color.Transparent
-                        },
+                        if (active) accent.copy(alpha = 0.16f)
+                        else Color.Transparent,
                     )
                     .clickable { onSelect(index) },
             ) {
-                Text(text = category.emojis.first(), fontSize = 20.sp)
+                Text(
+                    text = category.emojis.first(),
+                    fontSize = if (active) 21.sp else 18.sp,
+                )
             }
         }
     }

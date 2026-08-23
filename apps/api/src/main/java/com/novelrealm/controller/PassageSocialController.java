@@ -16,12 +16,15 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.novelrealm.dto.ChapterActivityResponse;
 import com.novelrealm.dto.CommentReactionsResponse;
+import com.novelrealm.dto.CommentVotesResponse;
 import com.novelrealm.dto.CreatePassageCommentRequest;
 import com.novelrealm.dto.PassageCommentResponse;
 import com.novelrealm.dto.PassageReactionResponse;
 import com.novelrealm.dto.ReactToCommentRequest;
 import com.novelrealm.dto.ReactToPassageRequest;
+import com.novelrealm.dto.VoteOnCommentRequest;
 import com.novelrealm.service.CommentReactionService;
+import com.novelrealm.service.CommentVoteService;
 import com.novelrealm.service.PassageSocialService;
 
 import jakarta.validation.Valid;
@@ -44,12 +47,15 @@ public class PassageSocialController {
 
     private final PassageSocialService passageService;
     private final CommentReactionService reactionService;
+    private final CommentVoteService voteService;
 
     public PassageSocialController(
             PassageSocialService passageService,
-            CommentReactionService reactionService) {
+            CommentReactionService reactionService,
+            CommentVoteService voteService) {
         this.passageService = passageService;
         this.reactionService = reactionService;
+        this.voteService = voteService;
     }
 
     /**
@@ -122,6 +128,20 @@ public class PassageSocialController {
             Authentication authentication) {
         return ResponseEntity.ok(reactionService.toggleOnPassageComment(
                 authentication.getName(), annotationId, request.emoji()));
+    }
+
+    /**
+     * PUT /api/passages/comments/{annotationId}/vote — pouce vert (+1) ou rouge (-1),
+     * ou retrait, sur un MESSAGE de passage. Le pendant, pour les votes, de
+     * {@link #reactToComment}. Idempotent : même sens → retiré, sens opposé → basculé.
+     */
+    @PutMapping("/passages/comments/{annotationId}/vote")
+    public ResponseEntity<CommentVotesResponse> voteOnComment(
+            @PathVariable Long annotationId,
+            @Valid @RequestBody VoteOnCommentRequest request,
+            Authentication authentication) {
+        return ResponseEntity.ok(voteService.voteOnPassageComment(
+                authentication.getName(), annotationId, request.value()));
     }
 
     /** GET /api/passages/emojis — le jeu d'emojis proposé, pour que l'app suive le back. */

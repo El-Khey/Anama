@@ -1,6 +1,8 @@
 package com.novelrealm.mobile.ui.explore
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -8,6 +10,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,13 +26,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items as lazyRowItems
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridScope
+import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -39,9 +44,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -56,6 +59,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -73,15 +78,23 @@ import com.novelrealm.mobile.ui.components.selectionStyle
 import com.novelrealm.mobile.ui.components.SheetScrim
 
 /**
- * Onglet Explorer : le catalogue complet.
+ * Onglet Explorer — pensé comme la vitrine d'un store, pas comme un mur de vignettes.
  *
- * L'organisation sépare ce qu'on touche souvent de ce qu'on règle une fois. Restent
- * toujours à l'écran la **recherche** et la **bande de genres** ; le tri et le statut,
- * eux, vivent dans un panneau qu'on ouvre — ils encombraient la barre pour un usage bien
- * plus rare.
+ * ## Deux modes, un seul écran
  *
- * Le **cœur** de chaque carte suit ou arrête de suivre le roman d'un seul appui : on voit
- * ce qu'on suit déjà, et on l'ajoute sans jamais ouvrir la fiche.
+ * **Navigation libre** (rien de coché) : une entrée éditoriale — un **héros** à la une,
+ * puis des **rangées** horizontales (Nouveautés, Populaires) —, suivie de la grille
+ * complète. C'est ce qu'on voit en arrivant : de quoi flâner, pas seulement chercher.
+ *
+ * **Recherche / filtre actif** : l'éditorial s'efface, l'écran se replie sur la seule
+ * grille de résultats. Entre une requête et sa réponse, un héros serait du bruit.
+ *
+ * Tout vit dans une **unique grille défilante** : l'en-tête, la recherche, la bande de
+ * genres et les sections éditoriales sont des lignes pleine largeur (`span`), puis
+ * viennent les cartes. Un seul défilement, donc, et la recherche remonte avec le reste
+ * plutôt que de rester collée en haut — le catalogue est ce qu'on vient lire.
+ *
+ * Le **cœur** de chaque carte suit ou arrête de suivre d'un appui, sans ouvrir la fiche.
  */
 @Composable
 fun ExploreScreen(
@@ -97,72 +110,47 @@ fun ExploreScreen(
     LaunchedEffect(Unit) { viewModel.refreshOnReturn() }
 
     Box(modifier = modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            ExploreHeader(
-                total = state.totalResults,
-                showTotal = !state.isLoading && state.novels.isNotEmpty(),
-                filtersActive = state.filtersActive,
-                onOpenFilters = { filtersOpen = true },
-            )
-
-            SearchField(
-                query = state.query,
-                onQueryChange = viewModel::onQueryChange,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-            )
-
-            if (state.genres.isNotEmpty()) {
-                GenreStrip(
-                    genres = state.genres,
-                    selectedGenreId = state.selectedGenreId,
-                    onGenreSelected = viewModel::onGenreSelected,
-                )
+        when {
+            state.isLoading && state.novels.isEmpty() && !state.showEditorial -> {
+                Column(Modifier.fillMaxSize()) {
+                    ExploreHeader(
+                        total = state.totalResults,
+                        showTotal = false,
+                        filtersActive = state.filtersActive,
+                        onOpenFilters = { filtersOpen = true },
+                    )
+                    LoadingScreen()
+                }
             }
 
-            ActiveFilterRow(
-                state = state,
-                onSortSelected = viewModel::onSortSelected,
-                onStatusSelected = viewModel::onStatusSelected,
-            )
-
-            Box(modifier = Modifier.fillMaxSize()) {
-                when {
-                    state.isLoading && state.novels.isEmpty() -> LoadingScreen()
-
-                    state.error != null && state.novels.isEmpty() -> EmptyScreen(
+            state.error != null && state.novels.isEmpty() -> {
+                Column(Modifier.fillMaxSize()) {
+                    ExploreHeader(
+                        total = state.totalResults,
+                        showTotal = false,
+                        filtersActive = state.filtersActive,
+                        onOpenFilters = { filtersOpen = true },
+                    )
+                    EmptyScreen(
                         message = state.error ?: "",
                         actionLabel = "Réessayer",
                         onAction = viewModel::refresh,
                     )
-
-                    state.novels.isEmpty() -> EmptyScreen(
-                        message = if (state.filtersActive) {
-                            "Aucun roman ne correspond.\nEssaie d'élargir la recherche."
-                        } else {
-                            "Le catalogue est vide pour l'instant."
-                        },
-                        actionLabel = if (state.filtersActive) "Réinitialiser" else null,
-                        onAction = if (state.filtersActive) {
-                            { viewModel.clearFilters() }
-                        } else {
-                            null
-                        },
-                    )
-
-                    else -> NovelGrid(
-                        novels = state.novels,
-                        libraryNovelIds = state.libraryNovelIds,
-                        isLoadingMore = state.isLoadingMore,
-                        pageError = state.pageError,
-                        endReached = state.endReached,
-                        onNovelClick = onNovelClick,
-                        onToggleLibrary = viewModel::toggleLibrary,
-                        onLoadMore = viewModel::loadNextPage,
-                    )
                 }
             }
+
+            else -> ExploreContent(
+                state = state,
+                onOpenFilters = { filtersOpen = true },
+                onQueryChange = viewModel::onQueryChange,
+                onGenreSelected = viewModel::onGenreSelected,
+                onSortSelected = viewModel::onSortSelected,
+                onStatusSelected = viewModel::onStatusSelected,
+                onClearFilters = viewModel::clearFilters,
+                onNovelClick = onNovelClick,
+                onToggleLibrary = viewModel::toggleLibrary,
+                onLoadMore = viewModel::loadNextPage,
+            )
         }
 
         AnimatedVisibility(
@@ -189,7 +177,250 @@ fun ExploreScreen(
     }
 }
 
-// ── En-tête ────────────────────────────────────────────────────────────────────
+/**
+ * Une ligne pleine largeur de la grille (en-tête, héros, section, recherche…). Elle
+ * occupe toutes les colonnes (`maxLineSpan`) : c'est ce qui laisse en-tête et carrousels
+ * cohabiter avec les cartes dans une seule grille défilante.
+ */
+private fun LazyGridScope.fullSpan(key: String, content: @Composable () -> Unit) {
+    item(key = key, span = { GridItemSpan(maxLineSpan) }) { content() }
+}
+
+// ── Contenu défilant (en-tête + éditorial + grille, d'un seul tenant) ────────────
+
+@Composable
+private fun ExploreContent(
+    state: ExploreUiState,
+    onOpenFilters: () -> Unit,
+    onQueryChange: (String) -> Unit,
+    onGenreSelected: (Long?) -> Unit,
+    onSortSelected: (ExploreSort) -> Unit,
+    onStatusSelected: (ExploreStatus) -> Unit,
+    onClearFilters: () -> Unit,
+    onNovelClick: (Long) -> Unit,
+    onToggleLibrary: (Long) -> Unit,
+    onLoadMore: () -> Unit,
+) {
+    val gridState = rememberLazyGridState()
+
+    // Décalage de défilement pour le parallax du héros : 0 tant qu'on est en haut, puis
+    // les pixels défilés dès qu'il s'agit d'une ligne suivante. Lu en `derivedStateOf`
+    // pour ne recomposer que ce qui en dépend (le héros), pas toute la grille.
+    val heroScroll by remember {
+        derivedStateOf {
+            if (gridState.firstVisibleItemIndex == 0) {
+                gridState.firstVisibleItemScrollOffset.toFloat()
+            } else {
+                // Passé la première ligne, le héros est sorti de l'écran : on plafonne le
+                // décalage pour éviter tout saut si l'on y revient.
+                2000f
+            }
+        }
+    }
+
+    // Pagination : charge la page suivante quand on approche de la fin.
+    val reachedEnd by remember {
+        derivedStateOf {
+            val info = gridState.layoutInfo
+            val total = info.totalItemsCount
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+            total > 0 && lastVisible >= total - 4
+        }
+    }
+    LaunchedEffect(reachedEnd) { if (reachedEnd) onLoadMore() }
+
+    LazyVerticalGrid(
+        state = gridState,
+        columns = GridCells.Adaptive(minSize = 118.dp),
+        // Marge latérale portée par la grille : les cartes s'y calent proprement. Les
+        // lignes pleine largeur (héros, carrousels) reçoivent ce même retrait — leurs
+        // paddings internes sont donc réglés pour que le total retombe sur nos 16-20 dp.
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        // ── En-tête (toujours) ──────────────────────────────────────────────────
+        fullSpan("header") {
+            ExploreHeader(
+                total = state.totalResults,
+                showTotal = !state.showEditorial && state.novels.isNotEmpty(),
+                filtersActive = state.filtersActive,
+                onOpenFilters = onOpenFilters,
+            )
+        }
+
+        // ── Vitrine éditoriale (navigation libre seulement) ─────────────────────
+        if (state.showEditorial) {
+            state.featured?.let { hero ->
+                fullSpan("hero") {
+                    NovelHero(
+                        novel = hero,
+                        inLibrary = hero.id in state.libraryNovelIds,
+                        onToggleLibrary = { onToggleLibrary(hero.id) },
+                        onClick = { onNovelClick(hero.id) },
+                        scrollOffsetProvider = { heroScroll },
+                        // La grille inset déjà de 16 dp : le héros s'aligne donc aux cartes
+                        // sans padding horizontal propre.
+                        modifier = Modifier.padding(vertical = 6.dp),
+                    )
+                }
+            }
+
+            if (state.popularRow.isNotEmpty()) {
+                fullSpan("h-popular") {
+                    SectionHeader(title = "Populaires", modifier = Modifier.padding(top = 8.dp))
+                }
+                fullSpan("row-popular") {
+                    Spacer(Modifier.height(2.dp))
+                    NovelRow(
+                        novels = state.popularRow,
+                        libraryNovelIds = state.libraryNovelIds,
+                        onNovelClick = onNovelClick,
+                        onToggleLibrary = onToggleLibrary,
+                    )
+                }
+            }
+
+            if (state.recentRow.isNotEmpty()) {
+                fullSpan("h-recent") {
+                    SectionHeader(title = "Nouveautés", modifier = Modifier.padding(top = 12.dp))
+                }
+                fullSpan("row-recent") {
+                    Spacer(Modifier.height(2.dp))
+                    NovelRow(
+                        novels = state.recentRow,
+                        libraryNovelIds = state.libraryNovelIds,
+                        onNovelClick = onNovelClick,
+                        onToggleLibrary = onToggleLibrary,
+                    )
+                }
+            }
+        }
+
+        // ── Recherche + genres (toujours, mais sous l'éditorial) ────────────────
+        fullSpan("search") {
+            Column {
+                if (state.showEditorial) {
+                    SectionHeader(title = "Tout le catalogue", modifier = Modifier.padding(top = 16.dp))
+                    Spacer(Modifier.height(10.dp))
+                }
+                SearchField(
+                    query = state.query,
+                    onQueryChange = onQueryChange,
+                    // Aligné aux cartes : la grille pose déjà le retrait de 16 dp.
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (state.genres.isNotEmpty()) {
+                    GenreStrip(
+                        genres = state.genres,
+                        selectedGenreId = state.selectedGenreId,
+                        onGenreSelected = onGenreSelected,
+                    )
+                }
+                ActiveFilterRow(
+                    state = state,
+                    onSortSelected = onSortSelected,
+                    onStatusSelected = onStatusSelected,
+                )
+            }
+        }
+
+        // ── Grille de résultats ─────────────────────────────────────────────────
+        if (state.novels.isEmpty() && !state.isLoading) {
+            fullSpan("empty") {
+                EmptyResults(filtersActive = state.filtersActive, onClear = onClearFilters)
+            }
+        } else {
+            itemsIndexed(state.novels) { index, novel ->
+                StaggeredCard(index = index) {
+                    NovelGridItem(
+                        title = novel.title,
+                        coverUrl = novel.coverImageUrl,
+                        author = novel.author,
+                        statusLabel = novelStatusLabel(novel.status),
+                        inLibrary = novel.id in state.libraryNovelIds,
+                        onToggleLibrary = { onToggleLibrary(novel.id) },
+                        onClick = { onNovelClick(novel.id) },
+                    )
+                }
+            }
+        }
+
+        if (state.isLoadingMore) {
+            fullSpan("loading-more") {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                ) {
+                    CircularProgressIndicator(strokeWidth = 2.5.dp, modifier = Modifier.size(26.dp))
+                }
+            }
+        }
+
+        if (state.pageError != null) {
+            fullSpan("page-error") {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                ) {
+                    Text(
+                        text = state.pageError ?: "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center,
+                    )
+                    TextButton(onClick = onLoadMore) {
+                        Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Charger la suite")
+                    }
+                }
+            }
+        }
+
+        if (state.endReached && state.pageError == null && state.novels.isNotEmpty()) {
+            fullSpan("end") {
+                Text(
+                    text = "— Fin du catalogue —",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Enveloppe une carte dans une entrée en fondu + translation, décalée selon son rang :
+ * les cartes « montent » l'une après l'autre plutôt que d'apparaître d'un bloc. Le
+ * décalage est plafonné pour que le bas d'une longue page ne traîne pas.
+ */
+@Composable
+private fun StaggeredCard(index: Int, content: @Composable () -> Unit) {
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { shown = true }
+    val progress by animateFloatAsState(
+        targetValue = if (shown) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = 320,
+            delayMillis = (index % 12) * 28,
+        ),
+        label = "cardStagger",
+    )
+    Box(
+        modifier = Modifier.graphicsLayer {
+            alpha = progress
+            translationY = (1f - progress) * 26f
+        },
+    ) {
+        content()
+    }
+}
+
+// ── En-tête ──────────────────────────────────────────────────────────────────
 
 @Composable
 private fun ExploreHeader(
@@ -202,19 +433,20 @@ private fun ExploreHeader(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 20.dp, end = 16.dp, top = 14.dp, bottom = 12.dp),
+            // Le Scaffold parent applique déjà l'inset de barre d'état ; on ne pose ici
+            // que le retrait interne. `start = 4` compense le contentPadding de 16 dp de
+            // la grille pour que le titre s'aligne à 20 dp comme les sections.
+            .padding(start = 4.dp, end = 0.dp, top = 12.dp, bottom = 12.dp),
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "Explorer",
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                // Le compte de résultats est le retour direct des filtres : sans lui, on
-                // ne sait pas si un filtre a mordu sur trois romans ou sur trois cents.
                 text = when {
-                    !showTotal -> "Tout le catalogue"
+                    !showTotal -> "Ta prochaine lecture t'attend"
                     total <= 1 -> "$total roman"
                     else -> "$total romans"
                 },
@@ -258,34 +490,72 @@ private fun CircleAction(
     }
 }
 
+/**
+ * Champ de recherche « maison » : une pastille arrondie assortie aux filtres, plutôt que
+ * l'`OutlinedTextField` de Material dont le liseré tranchait avec le reste de l'écran.
+ * Il ne prend PAS le focus tout seul : on arrive sur Explorer pour flâner, pas pour taper.
+ */
 @Composable
 private fun SearchField(
     query: String,
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
-        singleLine = true,
-        shape = RoundedCornerShape(16.dp),
-        leadingIcon = {
-            Icon(
-                Icons.Filled.Search,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        },
-        trailingIcon = {
-            if (query.isNotEmpty()) {
-                IconButton(onClick = { onQueryChange("") }) {
-                    Icon(Icons.Filled.Close, contentDescription = "Effacer")
-                }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+    ) {
+        Icon(
+            Icons.Filled.Search,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(10.dp))
+        Box(modifier = Modifier.weight(1f)) {
+            if (query.isEmpty()) {
+                Text(
+                    text = "Titre ou auteur…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                )
             }
-        },
-        placeholder = { Text("Titre ou auteur…") },
-        modifier = modifier,
-    )
+            BasicTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    color = MaterialTheme.colorScheme.onSurface,
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (query.isNotEmpty()) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { onQueryChange("") },
+                    ),
+            ) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = "Effacer",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        }
+    }
 }
 
 // ── Genres ─────────────────────────────────────────────────────────────────────
@@ -301,7 +571,9 @@ private fun GenreStrip(
     onGenreSelected: (Long?) -> Unit,
 ) {
     LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        // Pas de retrait horizontal ici : la grille l'applique déjà à cette ligne. On ne
+        // garde que le retrait vertical propre à la bande.
+        contentPadding = PaddingValues(vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item(key = "all") {
@@ -373,9 +645,10 @@ private fun ActiveFilterRow(
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        // Aligné aux cartes : retrait horizontal déjà posé par la grille.
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
+            .padding(bottom = 10.dp),
     ) {
         if (sortActive) {
             RemovableTag(
@@ -421,100 +694,28 @@ private fun RemovableTag(label: String, onRemove: () -> Unit) {
     }
 }
 
-// ── Grille ─────────────────────────────────────────────────────────────────────
-
+/** L'état « aucun résultat » propre à la grille filtrée (l'éditorial est déjà masqué). */
 @Composable
-private fun NovelGrid(
-    novels: List<NovelDto>,
-    libraryNovelIds: Set<Long>,
-    isLoadingMore: Boolean,
-    pageError: String?,
-    endReached: Boolean,
-    onNovelClick: (Long) -> Unit,
-    onToggleLibrary: (Long) -> Unit,
-    onLoadMore: () -> Unit,
-) {
-    val gridState = rememberLazyGridState()
-
-    // Déclenche le chargement de la page suivante quand on approche de la fin.
-    val reachedEnd by remember {
-        derivedStateOf {
-            val layoutInfo = gridState.layoutInfo
-            val total = layoutInfo.totalItemsCount
-            val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-            total > 0 && lastVisible >= total - 4
-        }
-    }
-    LaunchedEffect(reachedEnd) {
-        if (reachedEnd) onLoadMore()
-    }
-
-    LazyVerticalGrid(
-        state = gridState,
-        columns = GridCells.Adaptive(minSize = 118.dp),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-        modifier = Modifier.fillMaxSize(),
+private fun EmptyResults(filtersActive: Boolean, onClear: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 40.dp),
     ) {
-        items(items = novels, key = { it.id }) { novel ->
-            NovelGridItem(
-                title = novel.title,
-                coverUrl = novel.coverImageUrl,
-                inLibrary = novel.id in libraryNovelIds,
-                onToggleLibrary = { onToggleLibrary(novel.id) },
-                onClick = { onNovelClick(novel.id) },
-            )
-        }
-
-        if (isLoadingMore) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                ) {
-                    CircularProgressIndicator(strokeWidth = 2.5.dp, modifier = Modifier.size(26.dp))
-                }
-            }
-        }
-
-        // Échec d'une page suivante : le contenu déjà chargé reste, et on propose de
-        // reprendre là où ça a coincé plutôt que de tout recharger.
-        if (pageError != null) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                ) {
-                    Text(
-                        text = pageError,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        textAlign = TextAlign.Center,
-                    )
-                    TextButton(onClick = onLoadMore) {
-                        Icon(
-                            Icons.Filled.Refresh,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text("Charger la suite")
-                    }
-                }
-            }
-        }
-
-        if (endReached && pageError == null && novels.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Text(
-                    text = "— Fin du catalogue —",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp),
-                )
-            }
+        Text(
+            text = if (filtersActive) {
+                "Aucun roman ne correspond.\nEssaie d'élargir la recherche."
+            } else {
+                "Le catalogue est vide pour l'instant."
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        if (filtersActive) {
+            Spacer(Modifier.height(12.dp))
+            TextButton(onClick = onClear) { Text("Réinitialiser les filtres") }
         }
     }
 }
@@ -584,8 +785,6 @@ private fun FilterSheet(
                             modifier = Modifier.weight(1f),
                         )
                     }
-                    // Rangée incomplète : on réserve la place manquante pour que les
-                    // pastilles de la première rangée gardent la même largeur.
                     if (pair.size == 1) Spacer(Modifier.weight(1f))
                 }
             }

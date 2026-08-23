@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -34,6 +36,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /**
  * Carte de grille d'un roman (Explorer, Bibliothèque, Accueil) : couverture, titre
@@ -50,6 +53,10 @@ fun NovelGridItem(
     coverUrl: String?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Auteur, affiché en petit sous le titre quand il est connu. */
+    author: String? = null,
+    /** Statut déjà traduit (« En cours » / « Terminé ») ; null → pas de pastille. */
+    statusLabel: String? = null,
     unreadCount: Long = 0,
     /** Part de chapitres lus (0f..1f) ; null si inconnue → aucune barre affichée. */
     readFraction: Float? = null,
@@ -121,18 +128,49 @@ fun NovelGridItem(
                 ),
         )
 
-        Text(
-            text = title,
-            color = Color.White,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            lineHeight = MaterialTheme.typography.labelLarge.fontSize * 1.2f,
+        // Bloc de bas de carte : statut (optionnel), titre, auteur (optionnel). Le tout
+        // sur le dégradé, en blanc, pour rester lisible sur n'importe quelle couverture.
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
+                .fillMaxWidth()
                 .padding(horizontal = 10.dp, vertical = 10.dp),
-        )
+        ) {
+            if (statusLabel != null) {
+                Text(
+                    text = statusLabel.uppercase(),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.85f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+                Spacer(Modifier.height(6.dp))
+            }
+            Text(
+                text = title,
+                color = Color.White,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = MaterialTheme.typography.labelLarge.fontSize * 1.2f,
+            )
+            author?.takeIf { it.isNotBlank() }?.let { name ->
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = name,
+                    color = Color.White.copy(alpha = 0.7f),
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
 
         // Pastille « chapitres non lus », en haut à droite comme dans Mihon.
         if (unreadCount > 0) {

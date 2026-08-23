@@ -6,9 +6,9 @@ import kotlinx.serialization.Serializable
  * Miroir de `GifResponse` (back) : un GIF proposé par la recherche (issue #45, §5).
  *
  * `url` est la version animée (taille « sm » de KLIPY, ~220 px), `previewUrl`
- * une image FIGÉE du même GIF — c'est elle qu'on affiche par défaut, l'animation
- * ne démarrant qu'au toucher. `width`/`height` fixent le ratio avant chargement,
- * pour que la grille ne saute pas.
+ * une image FIGÉE du même GIF — cette dernière sert de fond le temps que l'animé
+ * arrive (dans la grille du sélecteur comme dans le fil, tous deux animés).
+ * `width`/`height` fixent le ratio avant chargement, pour que la grille ne saute pas.
  */
 @Serializable
 data class GifDto(

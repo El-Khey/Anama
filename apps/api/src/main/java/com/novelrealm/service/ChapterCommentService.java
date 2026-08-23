@@ -56,6 +56,7 @@ public class ChapterCommentService {
     private final MentionService mentionService;
     private final NotificationService notificationService;
     private final CommentReactionService reactionService;
+    private final CommentVoteService voteService;
 
     public ChapterCommentService(
             ChapterCommentRepository commentRepository,
@@ -64,7 +65,8 @@ public class ChapterCommentService {
             UserService userService,
             MentionService mentionService,
             NotificationService notificationService,
-            CommentReactionService reactionService) {
+            CommentReactionService reactionService,
+            CommentVoteService voteService) {
         this.commentRepository = commentRepository;
         this.chapterService = chapterService;
         this.novelService = novelService;
@@ -72,6 +74,7 @@ public class ChapterCommentService {
         this.mentionService = mentionService;
         this.notificationService = notificationService;
         this.reactionService = reactionService;
+        this.voteService = voteService;
     }
 
     /** Tris proposés au lecteur. */
@@ -119,13 +122,17 @@ public class ChapterCommentService {
         Map<Long, CommentReactionService.Summary> reactionsBySource =
                 reactionService.summarize(
                         CommentMention.SourceKind.CHAPTER_COMMENT, allIds, currentUserId);
+        Map<Long, CommentVoteService.Summary> votesBySource =
+                voteService.summarize(
+                        CommentMention.SourceKind.CHAPTER_COMMENT, allIds, currentUserId);
 
         return roots.map(root -> toResponse(
                 root,
                 currentUserId,
                 repliesByRoot.getOrDefault(root.getId(), List.of()),
                 mentionsBySource,
-                reactionsBySource));
+                reactionsBySource,
+                votesBySource));
     }
 
     /** Nombre de messages du chapitre, réponses comprises. */
@@ -202,9 +209,10 @@ public class ChapterCommentService {
                     CommentMention.SourceKind.CHAPTER_COMMENT, saved.getId(), null, body);
         }
 
-        // Un message fraîchement publié ne porte encore aucune réaction.
+        // Un message fraîchement publié ne porte encore aucune réaction ni vote.
         return toResponse(
-                saved, author.getId(), List.of(), Map.of(saved.getId(), mentions), Map.of());
+                saved, author.getId(), List.of(), Map.of(saved.getId(), mentions),
+                Map.of(), Map.of());
     }
 
     /** Modifie SON message. 403 si ce n'est pas le sien, 404 s'il est supprimé. */
@@ -225,23 +233,44 @@ public class ChapterCommentService {
                 CommentMention.SourceKind.CHAPTER_COMMENT, ids);
         Map<Long, CommentReactionService.Summary> reactions = reactionService.summarize(
                 CommentMention.SourceKind.CHAPTER_COMMENT, ids, author.getId());
-        return toResponse(comment, author.getId(), replies, mentions, reactions);
+        Map<Long, CommentVoteService.Summary> votes = voteService.summarize(
+                CommentMention.SourceKind.CHAPTER_COMMENT, ids, author.getId());
+        return toResponse(comment, author.getId(), replies, mentions, reactions, votes);
     }
 
     /**
-     * Supprime SON message — en douceur. La ligne reste : les réponses qui y sont
-     * accrochées perdraient sinon leur point d'attache et disparaîtraient du fil.
+     * Supprime SON message ET, si c'est une racine, TOUTES ses réponses. On ne garde
+     * plus de pierre tombale : supprimer un fil doit le faire disparaître en entier,
+     * réponses comprises (comportement demandé, déjà celui des passages).
+     *
+     * <p>La base emporte les réponses en cascade (FK {@code parent_id ON DELETE
+     * CASCADE}), mais leurs mentions et réactions vivent dans des tables SANS FK vers
+     * le commentaire : il faut donc les effacer nous-mêmes, pour la racine COMME pour
+     * chaque réponse emportée, sinon elles resteraient orphelines pour toujours.
      */
     @Transactional
     public void delete(String email, Long commentId) {
         User author = userService.findByEmail(email);
         ChapterComment comment = findOwned(author, commentId);
-        comment.softDelete();
-        // La ligne survit (pierre tombale) mais son corps ne s'affiche plus : ses
-        // réactions n'ont plus rien à décorer, on les efface. Les mentions, elles,
-        // restent (elles ne notifient plus rien de toute façon).
-        reactionService.deleteFor(
-                CommentMention.SourceKind.CHAPTER_COMMENT, List.of(comment.getId()));
+
+        // Racine + réponses : les ids de tout ce que la suppression va emporter.
+        List<Long> doomed = new ArrayList<>();
+        doomed.add(comment.getId());
+        if (comment.isRoot()) {
+            for (ChapterComment reply : commentRepository.findRepliesOf(List.of(comment.getId()))) {
+                doomed.add(reply.getId());
+            }
+        }
+
+        // Mentions, réactions et votes n'ont pas de FK vers le commentaire : on les
+        // efface à la main pour la racine et toutes ses réponses, avant que la cascade
+        // DB ne fasse disparaître les lignes.
+        mentionService.deleteFor(CommentMention.SourceKind.CHAPTER_COMMENT, doomed);
+        reactionService.deleteFor(CommentMention.SourceKind.CHAPTER_COMMENT, doomed);
+        voteService.deleteFor(CommentMention.SourceKind.CHAPTER_COMMENT, doomed);
+
+        // Suppression réelle : la FK `parent_id ON DELETE CASCADE` emporte les réponses.
+        commentRepository.delete(comment);
     }
 
     // ── Interne ───────────────────────────────────────────────────────────────
@@ -319,11 +348,13 @@ public class ChapterCommentService {
             Long currentUserId,
             List<ChapterComment> replies,
             Map<Long, List<CommentMention>> mentionsBySource,
-            Map<Long, CommentReactionService.Summary> reactionsBySource) {
+            Map<Long, CommentReactionService.Summary> reactionsBySource,
+            Map<Long, CommentVoteService.Summary> votesBySource) {
 
         List<ChapterCommentResponse> mappedReplies = replies.stream()
                 .map(reply -> toResponse(
-                        reply, currentUserId, List.of(), mentionsBySource, reactionsBySource))
+                        reply, currentUserId, List.of(), mentionsBySource, reactionsBySource,
+                        votesBySource))
                 .toList();
 
         if (comment.isDeleted()) {
@@ -331,7 +362,7 @@ public class ChapterCommentService {
                     comment.getId(), null, null, null, null,
                     true, false, false,
                     comment.getCreatedAt(), comment.getUpdatedAt(),
-                    List.of(), null, null, List.of(), List.of(), mappedReplies);
+                    List.of(), null, null, List.of(), List.of(), 0L, 0L, 0, mappedReplies);
         }
 
         User author = comment.getUser();
@@ -342,6 +373,8 @@ public class ChapterCommentService {
 
         CommentReactionService.Summary reactions = reactionsBySource.getOrDefault(
                 comment.getId(), CommentReactionService.Summary.EMPTY);
+        CommentVoteService.Summary votes = votesBySource.getOrDefault(
+                comment.getId(), CommentVoteService.Summary.EMPTY);
 
         return new ChapterCommentResponse(
                 comment.getId(),
@@ -359,6 +392,9 @@ public class ChapterCommentService {
                 comment.getGifPreviewUrl(),
                 reactions.tallies(),
                 reactions.mine(),
+                votes.likes(),
+                votes.dislikes(),
+                votes.myVote(),
                 mappedReplies);
     }
 

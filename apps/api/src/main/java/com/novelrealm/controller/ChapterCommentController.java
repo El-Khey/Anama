@@ -20,12 +20,15 @@ import org.springframework.web.bind.annotation.RestController;
 import com.novelrealm.dto.ChapterCommentResponse;
 import com.novelrealm.dto.CommentCountResponse;
 import com.novelrealm.dto.CommentReactionsResponse;
+import com.novelrealm.dto.CommentVotesResponse;
 import com.novelrealm.dto.CreateChapterCommentRequest;
 import com.novelrealm.dto.PageResponse;
 import com.novelrealm.dto.ReactToCommentRequest;
 import com.novelrealm.dto.UpdateChapterCommentRequest;
+import com.novelrealm.dto.VoteOnCommentRequest;
 import com.novelrealm.service.ChapterCommentService;
 import com.novelrealm.service.CommentReactionService;
+import com.novelrealm.service.CommentVoteService;
 
 import jakarta.validation.Valid;
 
@@ -44,12 +47,15 @@ public class ChapterCommentController {
 
     private final ChapterCommentService commentService;
     private final CommentReactionService reactionService;
+    private final CommentVoteService voteService;
 
     public ChapterCommentController(
             ChapterCommentService commentService,
-            CommentReactionService reactionService) {
+            CommentReactionService reactionService,
+            CommentVoteService voteService) {
         this.commentService = commentService;
         this.reactionService = reactionService;
+        this.voteService = voteService;
     }
 
     /**
@@ -129,6 +135,22 @@ public class ChapterCommentController {
             Authentication authentication) {
         return ResponseEntity.ok(reactionService.toggleOnChapterComment(
                 authentication.getName(), commentId, request.emoji()));
+    }
+
+    /**
+     * PUT /api/comments/{commentId}/vote — pouce vert (+1) ou rouge (-1), ou retrait.
+     *
+     * <p>{@code PUT} et non {@code POST} : idempotent au sens où l'état final ne dépend
+     * que du sens envoyé et de l'état courant (même sens → retiré, sens opposé →
+     * basculé, aucun vote → posé), jamais du nombre d'appels.
+     */
+    @PutMapping("/comments/{commentId}/vote")
+    public ResponseEntity<CommentVotesResponse> vote(
+            @PathVariable Long commentId,
+            @Valid @RequestBody VoteOnCommentRequest request,
+            Authentication authentication) {
+        return ResponseEntity.ok(voteService.voteOnChapterComment(
+                authentication.getName(), commentId, request.value()));
     }
 
     /** DELETE /api/comments/{commentId} — retire SON message (204). */

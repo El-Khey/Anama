@@ -70,6 +70,11 @@ data class PassageCommentDto(
     val reactions: List<EmojiTallyDto> = emptyList(),
     /** Les emojis que MOI j'ai posés, pour surligner mes puces. */
     val myReactions: List<String> = emptyList(),
+    /** Pouces verts / rouges posés sur ce message. */
+    val likes: Long = 0,
+    val dislikes: Long = 0,
+    /** Le sens de MON vote : +1 pour, -1 contre, 0 si je n'ai pas voté. */
+    val myVote: Int = 0,
     val replies: List<PassageCommentDto> = emptyList(),
 )
 
