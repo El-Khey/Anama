@@ -50,6 +50,16 @@ data class ExploreUiState(
     val totalResults: Long = 0,
     /** Romans déjà suivis, pour marquer les cartes du catalogue. */
     val libraryNovelIds: Set<Long> = emptySet(),
+    // ── Vitrine éditoriale (visible uniquement en navigation libre) ─────────────
+    // Chargées une fois à l'ouverture, indépendamment de la grille filtrée : le
+    // héros et les deux rangées donnent à l'onglet une entrée « magazine » plutôt
+    // qu'un mur de vignettes. Elles s'effacent dès qu'on cherche ou qu'on filtre.
+    /** Le roman mis en avant tout en haut (le plus suivi ; à défaut, le plus récent). */
+    val featured: NovelDto? = null,
+    /** Rangée horizontale « Nouveautés » (tri par date). */
+    val recentRow: List<NovelDto> = emptyList(),
+    /** Rangée horizontale « Populaires » (tri par nombre de lecteurs). */
+    val popularRow: List<NovelDto> = emptyList(),
 ) {
     /** Un filtre est actif dès qu'on s'écarte de la vue par défaut (recherche comprise). */
     val filtersActive: Boolean
@@ -57,6 +67,14 @@ data class ExploreUiState(
             selectedGenreId != null ||
             status != ExploreStatus.ALL ||
             sort != ExploreSort.DEFAULT
+
+    /**
+     * La vitrine éditoriale (héros + rangées) ne s'affiche qu'en navigation LIBRE : dès
+     * qu'un filtre mord, l'écran se replie sur la grille de résultats seule — le héros et
+     * les carrousels y seraient du bruit entre la requête et sa réponse.
+     */
+    val showEditorial: Boolean
+        get() = !filtersActive && featured != null
 
     val selectedGenre: GenreDto? get() = genres.firstOrNull { it.id == selectedGenreId }
 }
@@ -81,6 +99,38 @@ class ExploreViewModel : ViewModel() {
         refresh()
         loadGenres()
         refreshLibraryFlags()
+        loadEditorial()
+    }
+
+    /**
+     * Charge la vitrine éditoriale : le héros et les deux rangées horizontales.
+     *
+     * <p>Deux appels indépendants de la grille filtrée — un tri par date, un tri par
+     * popularité —, faits une seule fois à l'ouverture. Ils ne dépendent d'aucun filtre :
+     * la vitrine est la même quoi qu'on cherche ensuite (elle disparaît alors de l'écran,
+     * mais on la garde en mémoire pour la re-montrer instantanément quand on efface tout).
+     *
+     * <p>Le héros est le premier des « populaires » (ce qui « marche » mérite la vedette) ;
+     * si la popularité ne renvoie rien, on retombe sur le premier des récents. Tolérant à
+     * l'échec : une rangée vide se cache toute seule, elle ne bloque jamais le catalogue.
+     */
+    private fun loadEditorial() {
+        viewModelScope.launch {
+            val recent = (repository.getNovels(page = 0, sort = ExploreSort.RECENT.id)
+                as? ApiResult.Success)?.data?.content.orEmpty().distinctBy { it.id }
+            val popular = (repository.getNovels(page = 0, sort = ExploreSort.POPULARITY.id)
+                as? ApiResult.Success)?.data?.content.orEmpty().distinctBy { it.id }
+            val hero = popular.firstOrNull() ?: recent.firstOrNull()
+            _state.update { s ->
+                s.copy(
+                    featured = hero,
+                    // On sort le héros des rangées : le revoir juste dessous, en petit,
+                    // ferait doublon.
+                    recentRow = recent.filter { it.id != hero?.id },
+                    popularRow = popular.filter { it.id != hero?.id },
+                )
+            }
+        }
     }
 
     /**
