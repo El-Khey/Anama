@@ -66,6 +66,12 @@ services:
       # ── Emails administrateurs (depuis .env) — accès à la page /admin ─
       # Séparés par des virgules ; vide = personne n'est admin (fail-closed).
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      # ── Ingestion chikari — déclenchement MANUEL uniquement ──────────
+      # Le miroir n'est PAS automatique : on met le coupe-circuit à false,
+      # donc le job planifié (3h) ne fait rien. Les novels se récupèrent
+      # à la main via la page /admin (POST /api/admin/ingestion/...).
+      # Passer à true réactive le sync quotidien. Voir docs/INGESTION_V2.md.
+      INGESTION_ENABLED: ${INGESTION_ENABLED:-false}
       # ── Clé KLIPY (GIF dans les commentaires) — FACULTATIVE ──────────
       # Vide = fonctionnalité désactivée proprement, l'app masque le bouton.
       KLIPY_API_KEY: ${KLIPY_API_KEY:-}
