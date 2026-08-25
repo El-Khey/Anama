@@ -88,6 +88,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -369,26 +370,56 @@ private fun DetailContent(
 
 // ── En-tête ────────────────────────────────────────────────────────────────────
 
-/** Couverture floutée en toile de fond, vraie couverture + titre / auteur / méta devant. */
+/**
+ * En-tête **immersif** de la fiche : la couverture agrandie et floutée occupe tout le
+ * fond comme une bannière, la vraie couverture FLOTTE par-dessus (ombre portée), titre et
+ * métadonnées à droite.
+ *
+ * <p><b>Une vraie scène, pas une image effacée.</b> Le fond est nettement plus présent
+ * qu'avant (moins transparent, flou plus doux) : on veut sentir l'univers du roman dès le
+ * haut de page. Un dégradé le laisse respirer en haut puis le fond proprement vers la page
+ * en bas, pour que le texte s'y pose sans heurt.
+ *
+ * <p><b>Robuste au vieux matériel.</b> `Modifier.blur` ne floute rien avant Android 12 ;
+ * on ne compte donc pas QUE sur lui. Un scrim sombre par-dessus le fond assure une
+ * bannière élégante même sans flou — l'image y paraît alors « assombrie et cadrée »
+ * plutôt que ratée.
+ */
 @Composable
 private fun DetailHeader(novel: NovelDetailDto, chapterCount: Int) {
     Box(modifier = Modifier.fillMaxWidth()) {
+        // Bannière de fond : la couverture agrandie, floutée, bien présente.
         AsyncImage(
             model = resolveImageUrl(novel.coverImageUrl),
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .matchParentSize()
-                .blur(18.dp)
-                .alpha(0.35f),
+                .blur(28.dp)
+                .alpha(0.55f),
         )
+        // Scrim sombre : ancre la scène et garantit un rendu classe même si le flou
+        // n'opère pas (Android < 12). Léger en haut, plus dense au centre.
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .background(
                     Brush.verticalGradient(
-                        0f to MaterialTheme.colorScheme.background.copy(alpha = 0.55f),
-                        0.5f to MaterialTheme.colorScheme.background.copy(alpha = 0.75f),
+                        0f to Color.Black.copy(alpha = 0.15f),
+                        0.55f to Color.Black.copy(alpha = 0.30f),
+                        1f to Color.Black.copy(alpha = 0.45f),
+                    ),
+                ),
+        )
+        // Fondu vers le fond de la page : le tiers bas de la bannière se dissout dans la
+        // couleur de fond, pour que le contenu qui suit ne « bute » pas sur une arête.
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        0.62f to Color.Transparent,
                         1f to MaterialTheme.colorScheme.background,
                     ),
                 ),
@@ -396,30 +427,40 @@ private fun DetailHeader(novel: NovelDetailDto, chapterCount: Int) {
         Row(
             modifier = Modifier
                 .statusBarsPadding()
-                .padding(start = 20.dp, end = 20.dp, top = 60.dp, bottom = 20.dp),
+                .padding(start = 20.dp, end = 20.dp, top = 64.dp, bottom = 22.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
+            // La couverture FLOTTE : une ombre portée la détache du fond flouté et lui
+            // donne le relief d'une carte posée sur la scène. `clip = false` pour que
+            // l'ombre déborde du cadre au lieu d'être rognée à ses bords.
             NovelCover(
                 coverUrl = novel.coverImageUrl,
                 contentDescription = novel.title,
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.width(118.dp),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .width(124.dp)
+                    .shadow(
+                        elevation = 18.dp,
+                        shape = RoundedCornerShape(12.dp),
+                        clip = false,
+                    ),
             )
-            Spacer(Modifier.width(16.dp))
-            Column {
+            Spacer(Modifier.width(18.dp))
+            Column(modifier = Modifier.padding(bottom = 4.dp)) {
                 Text(
                     text = novel.title,
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onBackground,
+                    color = Color.White,
+                    lineHeight = MaterialTheme.typography.headlineMedium.fontSize * 1.1f,
                 )
                 if (!novel.author.isNullOrBlank()) {
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(10.dp))
                     MetaLine(icon = Icons.Filled.Person, text = novel.author)
                 }
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(5.dp))
                 MetaLine(
                     icon = if (novel.status == "COMPLETED") Icons.Filled.DoneAll else Icons.Filled.Schedule,
                     text = buildString {
@@ -428,7 +469,7 @@ private fun DetailHeader(novel: NovelDetailDto, chapterCount: Int) {
                     },
                 )
                 if (novel.ratingCount > 0) {
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(5.dp))
                     MetaLine(
                         icon = Icons.Filled.Star,
                         text = "%.1f · %d avis".format(novel.averageRating, novel.ratingCount),
@@ -440,10 +481,14 @@ private fun DetailHeader(novel: NovelDetailDto, chapterCount: Int) {
     }
 }
 
-/** Ligne « icône + texte » des métadonnées du roman. */
+/**
+ * Ligne « icône + texte » des métadonnées du roman, DANS la bannière immersive. Le texte
+ * est blanc atténué (pas `onBackground`) : la bannière a un scrim sombre quel que soit le
+ * thème, un gris de thème clair y deviendrait illisible.
+ */
 @Composable
 private fun MetaLine(icon: ImageVector, text: String, iconTint: Color? = null) {
-    val muted = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.75f)
+    val muted = Color.White.copy(alpha = 0.82f)
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(
             icon,

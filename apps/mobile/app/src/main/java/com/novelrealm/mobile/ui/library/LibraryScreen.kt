@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -165,10 +166,15 @@ fun LibraryScreen(
                     // Fond transparent : l'en-tête et les onglets forment un seul bloc, au
                     // lieu de deux bandes de teintes voisines qui se cherchent.
                     containerColor = Color.Transparent,
-                    // Le séparateur par défaut est posé DANS la zone défilable : il s'arrêtait
-                    // donc à la fin des onglets, à quelques dizaines de pixels du bord droit.
-                    // On le sort de là pour en tracer un vrai, pleine largeur et discret.
                     divider = {},
+                    // Soulignement MAISON qui GLISSE : au lieu du trait Material qui saute
+                    // d'un onglet à l'autre, il suit le doigt en interpolant entre l'onglet
+                    // courant et le suivant selon la fraction de défilement du pager. Le
+                    // geste de swipe se « voit » donc dans le soulignement, pas seulement
+                    // dans le contenu — c'est ce qui rend le balayage instinctif.
+                    indicator = { tabPositions ->
+                        GlidingTabIndicator(tabPositions = tabPositions, pagerState = pagerState)
+                    },
                 ) {
                     tabs.forEachIndexed { index, tab ->
                         Tab(
@@ -176,10 +182,7 @@ fun LibraryScreen(
                             // `animateScrollToPage` : le contenu glisse au lieu de sauter,
                             // exactement comme quand on balaie l'écran à la main.
                             onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
-                            // Material 3 donne par défaut la MÊME couleur aux onglets actif et
-                            // inactifs : tous ressortaient en accent, et seul le soulignement
-                            // distinguait la sélection. On rend les inactifs sourds.
-                            selectedContentColor = MaterialTheme.colorScheme.primary,
+                            selectedContentColor = MaterialTheme.colorScheme.onSurface,
                             unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                             text = {
                                 TabLabel(
@@ -428,7 +431,7 @@ private fun LibraryHeader(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "Bibliothèque",
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
             )
             Text(
@@ -605,6 +608,57 @@ private fun StatusFilterItem(
 }
 
 /**
+ * Le soulignement des onglets, **qui glisse** avec le doigt.
+ *
+ * <p>Le trait Material par défaut saute d'un onglet à l'autre à la fin du geste. Ici on
+ * interpole sa position ET sa largeur entre l'onglet courant et le suivant, au rythme de
+ * la fraction de défilement du pager ([currentPageOffsetFraction], de -1 à +1). Résultat :
+ * quand on balaie l'écran, le trait suit en temps réel — le swipe devient évident.
+ *
+ * <p>Un trait épais (3 dp), arrondi et un peu plus court que l'onglet (retrait latéral),
+ * en accent : plus « app moderne » que le filet fin par défaut.
+ */
+@Composable
+private fun GlidingTabIndicator(
+    tabPositions: List<androidx.compose.material3.TabPosition>,
+    pagerState: androidx.compose.foundation.pager.PagerState,
+) {
+    if (tabPositions.isEmpty()) return
+    // Position continue dans la liste d'onglets : partie entière = onglet de gauche,
+    // partie décimale = progression vers le suivant. Bornée à la plage valide.
+    val position = (pagerState.currentPage + pagerState.currentPageOffsetFraction)
+        .coerceIn(0f, (tabPositions.lastIndex).toFloat())
+    val fromIndex = position.toInt().coerceIn(0, tabPositions.lastIndex)
+    val toIndex = (fromIndex + 1).coerceAtMost(tabPositions.lastIndex)
+    val frac = position - fromIndex
+
+    val from = tabPositions[fromIndex]
+    val to = tabPositions[toIndex]
+    // Interpolation linéaire du bord gauche et de la largeur entre les deux onglets.
+    val indicatorLeft = androidx.compose.ui.unit.lerp(from.left, to.left, frac)
+    val indicatorWidth = androidx.compose.ui.unit.lerp(from.width, to.width, frac)
+    // Retrait latéral : le trait est un peu plus court que l'onglet, pour un rendu net.
+    val inset = 10.dp
+
+    // `ScrollableTabRow` donne à l'indicateur un emplacement qui occupe TOUTE la hauteur
+    // (et la largeur) de la barre — sans rien de plus, notre Box s'y étirait en un gros
+    // pavé orange. `fillMaxSize()` + `wrapContentSize(BottomStart)` réduisent la mesure à
+    // notre trait et le collent en BAS À GAUCHE ; on décale ensuite en x et on fixe la
+    // largeur/hauteur. C'est ce que fait `Modifier.tabIndicatorOffset` en interne, mais
+    // ici on interpole nous-mêmes pour que le trait GLISSE au lieu de sauter.
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomStart) {
+        Box(
+            modifier = Modifier
+                .offset(x = indicatorLeft + inset)
+                .width((indicatorWidth - inset * 2).coerceAtLeast(0.dp))
+                .height(3.dp)
+                .clip(RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
+                .background(MaterialTheme.colorScheme.primary),
+        )
+    }
+}
+
+/**
  * Libellé d'onglet avec son compteur, façon Mihon. Le compteur de l'onglet actif se
  * teinte d'accent : la sélection se lit alors sur deux signaux (soulignement + pastille)
  * plutôt qu'un seul, ce qui reste net même en coup d'œil rapide.
@@ -623,7 +677,7 @@ private fun TabLabel(label: String, count: Int, selected: Boolean) {
             Surface(
                 color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
                 else MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(7.dp),
+                shape = RoundedCornerShape(6.dp),
             ) {
                 Text(
                     text = "$count",
@@ -702,7 +756,7 @@ private fun NovelActionsSheet(
 
     Surface(
         color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         tonalElevation = 6.dp,
         shadowElevation = 16.dp,
         modifier = Modifier.fillMaxWidth(),
@@ -731,7 +785,7 @@ private fun NovelActionsSheet(
                 NovelCover(
                     coverUrl = novel.coverImageUrl,
                     contentDescription = null,
-                    shape = RoundedCornerShape(9.dp),
+                    shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.width(44.dp),
                 )
                 Spacer(Modifier.width(14.dp))
@@ -839,7 +893,7 @@ private fun ShelfChip(
     onClick: () -> Unit,
     isNew: Boolean = false,
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(10.dp)
     val style = selectionStyle(active)
     Surface(color = style.container, shape = shape, modifier = Modifier.border(1.dp, style.border, shape)) {
         Row(
@@ -889,7 +943,7 @@ private fun ActionTile(
         destructive -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    Surface(color = container, shape = RoundedCornerShape(16.dp), modifier = modifier) {
+    Surface(color = container, shape = RoundedCornerShape(12.dp), modifier = modifier) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
@@ -943,7 +997,7 @@ private fun ShelfNameDialog(
                 onValueChange = { name = it },
                 label = { Text("Nom") },
                 singleLine = true,
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth(),
             )
         },
