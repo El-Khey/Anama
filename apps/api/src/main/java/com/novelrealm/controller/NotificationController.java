@@ -9,10 +9,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.novelrealm.dto.NotificationResponse;
-import com.novelrealm.dto.PageResponse;
-import com.novelrealm.dto.UnreadCountResponse;
-import com.novelrealm.service.NotificationService;
+import com.novelrealm.dto.common.PageResponse;
+import com.novelrealm.dto.notification.NotificationResponse;
+import com.novelrealm.dto.notification.UnreadCountResponse;
+import com.novelrealm.service.notification.NotificationService;
 
 /**
  * La cloche (issue #45, §3). Toujours celle de l'utilisateur connecté — aucun

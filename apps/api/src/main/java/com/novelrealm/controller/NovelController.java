@@ -7,19 +7,18 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
 import java.util.Comparator;
 import java.util.List;
 
-import com.novelrealm.dto.GenreResponse;
-import com.novelrealm.dto.NovelDetailResponse;
-import com.novelrealm.dto.NovelResponse;
-import com.novelrealm.dto.PageResponse;
+import com.novelrealm.dto.common.PageResponse;
+import com.novelrealm.dto.novel.GenreResponse;
+import com.novelrealm.dto.novel.NovelDetailResponse;
+import com.novelrealm.dto.novel.NovelResponse;
 import com.novelrealm.model.Novel;
 import com.novelrealm.model.Novel.NovelStatus;
 import com.novelrealm.repository.ReviewRepository.RatingSummary;
-import com.novelrealm.service.NovelService;
-import com.novelrealm.service.ReviewService;
+import com.novelrealm.service.novel.NovelService;
+import com.novelrealm.service.review.ReviewService;
 
 @RestController
 @RequestMapping("/api/novels")

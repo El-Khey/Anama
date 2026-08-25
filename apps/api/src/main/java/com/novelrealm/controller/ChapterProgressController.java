@@ -1,17 +1,7 @@
 package com.novelrealm.controller;
 
 import java.util.List;
-
-import com.novelrealm.dto.BatchMarkChaptersReadRequest;
-import com.novelrealm.dto.ChapterProgressResponse;
-import com.novelrealm.dto.MarkChapterReadRequest;
-import com.novelrealm.dto.NovelProgressSummary;
-import com.novelrealm.dto.SaveChapterPositionRequest;
-import com.novelrealm.model.ChapterProgress;
-import com.novelrealm.service.ChapterProgressService;
-
 import jakarta.validation.Valid;
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,6 +10,14 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import com.novelrealm.dto.progress.BatchMarkChaptersReadRequest;
+import com.novelrealm.dto.progress.ChapterProgressResponse;
+import com.novelrealm.dto.progress.MarkChapterReadRequest;
+import com.novelrealm.dto.progress.NovelProgressSummary;
+import com.novelrealm.dto.progress.SaveChapterPositionRequest;
+import com.novelrealm.model.ChapterProgress;
+import com.novelrealm.service.progress.ChapterProgressService;
 
 /**
  * API de la progression de lecture. Toujours implicitement « l'utilisateur

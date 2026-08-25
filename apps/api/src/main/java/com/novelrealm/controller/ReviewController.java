@@ -11,16 +11,15 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import jakarta.validation.Valid;
 
-import com.novelrealm.dto.PageResponse;
-import com.novelrealm.dto.ReviewResponse;
-import com.novelrealm.dto.ReviewSummaryResponse;
-import com.novelrealm.dto.UpsertReviewRequest;
+import com.novelrealm.dto.common.PageResponse;
+import com.novelrealm.dto.review.ReviewResponse;
+import com.novelrealm.dto.review.ReviewSummaryResponse;
+import com.novelrealm.dto.review.UpsertReviewRequest;
 import com.novelrealm.model.Review;
 import com.novelrealm.model.User;
-import com.novelrealm.service.ReviewService;
-
-import jakarta.validation.Valid;
+import com.novelrealm.service.review.ReviewService;
 
 /**
  * API des avis (note + commentaire) d'un roman. L'auteur d'un avis est toujours

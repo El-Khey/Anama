@@ -1,9 +1,6 @@
 package com.novelrealm.model;
 
 import java.time.Instant;
-
-import com.novelrealm.model.CommentMention.SourceKind;
-
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -16,6 +13,8 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+
+import com.novelrealm.model.CommentMention.SourceKind;
 
 /**
  * Réaction emoji posée par un lecteur sur un commentaire (façon Discord).

@@ -1,20 +1,42 @@
 package com.novelrealm.exception;
 
-import com.novelrealm.dto.ErrorResponse;
-import com.novelrealm.dto.ValidationErrorResponse;
-
-
-
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-
 import java.util.Map;
 import java.util.HashMap;
 
+import com.novelrealm.dto.common.ErrorResponse;
+import com.novelrealm.dto.common.ValidationErrorResponse;
+import com.novelrealm.exception.auth.InvalidCredentialsException;
+import com.novelrealm.exception.chapter.ChapterNotFoundException;
+import com.novelrealm.exception.comment.ChapterCommentNotFoundException;
+import com.novelrealm.exception.comment.CommentNotOwnedException;
+import com.novelrealm.exception.comment.CommentRateLimitedException;
+import com.novelrealm.exception.comment.InvalidCommentException;
+import com.novelrealm.exception.comment.InvalidMentionException;
+import com.novelrealm.exception.common.InvalidUploadException;
+import com.novelrealm.exception.gif.GifUnavailableException;
+import com.novelrealm.exception.library.CategoryNameAlreadyUsedException;
+import com.novelrealm.exception.library.CategoryNotFoundException;
+import com.novelrealm.exception.library.LibraryEntryAlreadyExistsException;
+import com.novelrealm.exception.library.LibraryEntryNotFoundException;
+import com.novelrealm.exception.notification.NotificationNotFoundException;
+import com.novelrealm.exception.novel.NovelNotFoundException;
+import com.novelrealm.exception.passage.InvalidPassageException;
+import com.novelrealm.exception.passage.InvalidQuoteException;
+import com.novelrealm.exception.passage.PassageAnnotationNotFoundException;
+import com.novelrealm.exception.passage.QuoteNotFoundException;
+import com.novelrealm.exception.progress.ChapterAlreadyFavoritedException;
+import com.novelrealm.exception.progress.ChapterFavoriteNotFoundException;
+import com.novelrealm.exception.review.ReviewNotFoundException;
+import com.novelrealm.exception.user.EmailAlreadyUsedException;
+import com.novelrealm.exception.user.InvalidProfileFieldException;
+import com.novelrealm.exception.user.PasswordChangeNotAllowedException;
+import com.novelrealm.exception.user.UserNotFoundException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {

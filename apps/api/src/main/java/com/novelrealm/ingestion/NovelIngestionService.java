@@ -1,5 +1,15 @@
 package com.novelrealm.ingestion;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import java.io.IOException;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 import com.novelrealm.model.Chapter;
 import com.novelrealm.model.Genre;
 import com.novelrealm.model.Novel;
@@ -7,17 +17,6 @@ import com.novelrealm.model.Novel.NovelStatus;
 import com.novelrealm.repository.ChapterRepository;
 import com.novelrealm.repository.GenreRepository;
 import com.novelrealm.repository.NovelRepository;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
-
-import java.io.IOException;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Orchestration de l'ingestion : scrape → mappe vers les entités → upsert.

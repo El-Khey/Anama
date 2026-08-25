@@ -2,11 +2,10 @@ package com.novelrealm.repository;
 
 import java.util.List;
 import java.util.Optional;
-
-import com.novelrealm.model.Category;
-
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+
+import com.novelrealm.model.Category;
 
 /**
  * Accès aux étagères personnelles.

@@ -1,18 +1,8 @@
 package com.novelrealm.controller;
 
-import com.novelrealm.dto.LoginRequest;
-import com.novelrealm.dto.LoginResponse;
-import com.novelrealm.dto.RegisterRequest;
-import com.novelrealm.dto.UserResponse;
-import com.novelrealm.model.User;
-import com.novelrealm.service.AuthenticationService;
-import com.novelrealm.service.UserMapper;
-import com.novelrealm.service.UserService;
-
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
-
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -20,6 +10,14 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.novelrealm.dto.auth.LoginRequest;
+import com.novelrealm.dto.auth.LoginResponse;
+import com.novelrealm.dto.auth.RegisterRequest;
+import com.novelrealm.dto.user.UserResponse;
+import com.novelrealm.model.User;
+import com.novelrealm.service.auth.AuthenticationService;
+import com.novelrealm.service.user.UserMapper;
+import com.novelrealm.service.user.UserService;
 
 @RestController
 @RequestMapping("/api/auth")

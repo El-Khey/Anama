@@ -2,12 +2,11 @@ package com.novelrealm.repository;
 
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.JpaRepository;
 
 import com.novelrealm.model.ChapterFavorite;
 import com.novelrealm.model.ChapterFavoriteId;
-
-import org.springframework.data.jpa.repository.EntityGraph;
-import org.springframework.data.jpa.repository.JpaRepository;
 
 /**
  * Accès aux favoris de chapitre.

@@ -6,9 +6,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.novelrealm.dto.GifAvailabilityResponse;
-import com.novelrealm.dto.GifPageResponse;
-import com.novelrealm.service.GifService;
+import com.novelrealm.dto.gif.GifAvailabilityResponse;
+import com.novelrealm.dto.gif.GifPageResponse;
+import com.novelrealm.service.gif.GifService;
 
 /**
  * Recherche de GIF (issue #45, §5) — proxy KLIPY, la clé d'API ne quitte jamais

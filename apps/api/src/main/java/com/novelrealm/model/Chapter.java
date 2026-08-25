@@ -1,7 +1,6 @@
 package com.novelrealm.model;
 
 import java.time.Instant;
-
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -14,7 +13,6 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
-
 
 @Entity
 @Table(name = "chapters", uniqueConstraints = @UniqueConstraint(columnNames = {"novel_id", "chapter_number"}))

@@ -6,11 +6,10 @@ import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import java.util.Optional;
 
 import com.novelrealm.model.Novel;
 import com.novelrealm.model.Novel.NovelStatus;
-
-import java.util.Optional;
 
 public interface NovelRepository extends JpaRepository<Novel, Long> {
     // Clé naturelle pour l'ingestion idempotente (un slug = un roman).

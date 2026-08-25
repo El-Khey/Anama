@@ -1,7 +1,6 @@
 package com.novelrealm.controller;
 
 import java.util.List;
-
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -13,21 +12,20 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import com.novelrealm.dto.ChapterActivityResponse;
-import com.novelrealm.dto.CommentReactionsResponse;
-import com.novelrealm.dto.CommentVotesResponse;
-import com.novelrealm.dto.CreatePassageCommentRequest;
-import com.novelrealm.dto.PassageCommentResponse;
-import com.novelrealm.dto.PassageReactionResponse;
-import com.novelrealm.dto.ReactToCommentRequest;
-import com.novelrealm.dto.ReactToPassageRequest;
-import com.novelrealm.dto.VoteOnCommentRequest;
-import com.novelrealm.service.CommentReactionService;
-import com.novelrealm.service.CommentVoteService;
-import com.novelrealm.service.PassageSocialService;
-
 import jakarta.validation.Valid;
+
+import com.novelrealm.dto.comment.CommentReactionsResponse;
+import com.novelrealm.dto.comment.CommentVotesResponse;
+import com.novelrealm.dto.comment.ReactToCommentRequest;
+import com.novelrealm.dto.comment.VoteOnCommentRequest;
+import com.novelrealm.dto.passage.ChapterActivityResponse;
+import com.novelrealm.dto.passage.CreatePassageCommentRequest;
+import com.novelrealm.dto.passage.PassageCommentResponse;
+import com.novelrealm.dto.passage.PassageReactionResponse;
+import com.novelrealm.dto.passage.ReactToPassageRequest;
+import com.novelrealm.service.comment.CommentReactionService;
+import com.novelrealm.service.comment.CommentVoteService;
+import com.novelrealm.service.passage.PassageSocialService;
 
 /**
  * Réactions et commentaires accrochés à un passage (#41, §4).
