@@ -4,12 +4,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import com.novelrealm.service.ChapterService;
-import com.novelrealm.model.Chapter;
-import com.novelrealm.dto.ChapterResponse;
-import com.novelrealm.dto.ChapterDetailResponse;
 import java.util.List;
 
+import com.novelrealm.dto.chapter.ChapterDetailResponse;
+import com.novelrealm.dto.chapter.ChapterResponse;
+import com.novelrealm.model.Chapter;
+import com.novelrealm.service.chapter.ChapterService;
 
 @RestController
 @RequestMapping("/api/chapters")

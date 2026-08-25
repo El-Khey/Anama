@@ -1,17 +1,7 @@
 package com.novelrealm.controller;
 
 import java.util.List;
-
-import com.novelrealm.dto.AddNovelToCategoryRequest;
-import com.novelrealm.dto.CategoryDetailResponse;
-import com.novelrealm.dto.CategoryNameRequest;
-import com.novelrealm.dto.NovelResponse;
-import com.novelrealm.model.Category;
-import com.novelrealm.model.Novel;
-import com.novelrealm.service.CategoryService;
-
 import jakarta.validation.Valid;
-
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -23,6 +13,14 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import com.novelrealm.dto.library.AddNovelToCategoryRequest;
+import com.novelrealm.dto.library.CategoryDetailResponse;
+import com.novelrealm.dto.library.CategoryNameRequest;
+import com.novelrealm.dto.novel.NovelResponse;
+import com.novelrealm.model.Category;
+import com.novelrealm.model.Novel;
+import com.novelrealm.service.library.CategoryService;
 
 /**
  * API des étagères personnelles. Toujours implicitement « l'utilisateur

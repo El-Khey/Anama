@@ -21,10 +21,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -395,8 +396,15 @@ fun PassageThreadSheet(
         tonalElevation = 0.dp,
         shadowElevation = 20.dp,
         modifier = modifier
-            // Feuille haute façon TikTok : ~70 % de l'écran, plutôt que de s'ajuster au
-            // contenu (elle était minuscule). Le fil prend toute la place disponible.
+            // Clavier ouvert : la feuille REMONTE au-dessus de lui (`imePadding` en TÊTE
+            // de chaîne) au lieu de rétrécir son intérieur. C'était LE bug : la feuille
+            // faisait 70 % de l'écran ENTIER et absorbait l'inset clavier à l'intérieur —
+            // le champ de saisie passait donc sous le clavier. Ici `imePadding` inset la
+            // feuille par le bas ; ancrée en bas, elle se cale juste au-dessus du clavier,
+            // et le `fillMaxHeight(0.7f)` porte sur la hauteur RESTANTE (écran − clavier).
+            .imePadding()
+            // Feuille haute façon TikTok : ~70 % de la hauteur visible (hors clavier),
+            // plutôt que de s'ajuster au contenu. Le fil prend toute la place disponible.
             .fillMaxWidth()
             .fillMaxHeight(0.7f)
             .onGloballyPositioned { sheetHeightPx = it.size.height.toFloat() }
@@ -409,8 +417,12 @@ fun PassageThreadSheet(
             ),
     ) {
         Column(
+            // L'inset clavier est désormais porté par la feuille elle-même (`imePadding`
+            // ci-dessus) : ici on ne garde que la barre de navigation, pour que le contenu
+            // ne colle pas aux boutons système quand le clavier est fermé. (Clavier ouvert,
+            // cet inset vaut 0 — la barre passe derrière le clavier —, pas de double écart.)
             modifier = Modifier
-                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)),
+                .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)),
         ) {
             // En-tête TikTok : poignée, titre « N commentaires » CENTRÉ, croix à droite.
             Box(

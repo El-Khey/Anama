@@ -56,6 +56,12 @@ app:
   # Dossier disque des uploads (relatif au dossier de travail de l'app).
   upload-dir: ${UPLOAD_DIR:uploads}
 
+  # ── Administration ─────────────────────────────────────────────
+  # Emails autorisés à déclencher l'ingestion (séparés par des virgules).
+  # VIDE = personne (fail-closed). Mécanisme d'intérim faute de rôles ;
+  # voir AdminGuard et docs/INGESTION_V2.md.
+  admin-emails: ${ADMIN_EMAILS:}
+
   # ── Authentification JWT (mobile + web) ────────────────────────
   # Un seul token signé (HS256) : header `Authorization: Bearer` côté mobile,
   # cookie httpOnly côté web. Le secret DOIT faire ≥ 32 octets (256 bits).
@@ -83,6 +89,22 @@ app:
   klipy:
     api-key: ${KLIPY_API_KEY:}
     base-url: https://api.klipy.com/api/v1
+
+# ── Ingestion V2 (miroir chikari.moe) ───────────────────────────
+# Job planifié qui rapatrie et maintient les light novels depuis l'API
+# JSON de chikari (/api/novels/*). Voir docs/INGESTION_V2.md.
+novelrealm:
+  ingestion:
+    enabled: ${INGESTION_ENABLED:true}          # coupe-circuit global
+    cron: ${INGESTION_CRON:0 0 3 * * *}          # 03:00 quotidien
+    delay-ms: ${INGESTION_DELAY_MS:500}          # politesse entre chapitres
+    catalog-page-size: ${INGESTION_CATALOG_PAGE_SIZE:24}
+    discovery-cap: ${INGESTION_DISCOVERY_CAP:100} # débit du miroir : nouveaux titres/run
+    skip-nsfw: ${INGESTION_SKIP_NSFW:true}       # la découverte saute l'adulte
+    max-retries: ${INGESTION_MAX_RETRIES:3}      # tentatives sur 429/5xx/timeout
+    source:
+      base-url: ${INGESTION_SOURCE_BASE_URL:https://chikari.moe}
+      user-agent: ${INGESTION_SOURCE_USER_AGENT:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36}
 
 server:
   port: 8080

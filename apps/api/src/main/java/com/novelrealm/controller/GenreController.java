@@ -3,10 +3,10 @@ package com.novelrealm.controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import com.novelrealm.service.GenreService;
-import com.novelrealm.dto.GenreResponse;
 import java.util.List;
 
+import com.novelrealm.dto.novel.GenreResponse;
+import com.novelrealm.service.novel.GenreService;
 
 @RestController
 @RequestMapping("/api/genres")

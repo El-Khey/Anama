@@ -12,10 +12,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -45,11 +43,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -265,38 +267,57 @@ fun CommentThread(
                 )
             } else {
                 Spacer(Modifier.height(14.dp))
-                // `IntrinsicSize.Min` donne au filet la hauteur exacte du groupe :
-                // un `fillMaxHeight` seul n'aurait rien à quoi se mesurer ici.
-                Row(
+                // Le filet vertical du groupe de réponses est PEINT derrière la colonne
+                // (`drawBehind`), pas posé comme un enfant qui devrait « remplir la
+                // hauteur ». L'ancienne version enfermait le tout dans un
+                // `Row(height(IntrinsicSize.Min))` pour donner une hauteur au filet — mais
+                // la mesure d'intrinsèque MINIMALE d'une réponse contenant un GIF
+                // (`aspectRatio`, dont l'intrinsèque vaut ~0) sous-estimait la hauteur :
+                // le GIF débordait alors par-dessus la ligne date/pouces, qui devenait
+                // invisible et intouchable. En peignant le filet, la colonne se mesure
+                // normalement (hauteur réelle du contenu) et plus rien ne déborde.
+                val railColor = foreground.copy(alpha = 0.16f)
+                val railStroke = with(LocalDensity.current) { 2.dp.toPx() }
+                val railX = with(LocalDensity.current) { 6.dp.toPx() }
+                Column(
                     modifier = Modifier
-                        .height(IntrinsicSize.Min)
-                        .padding(start = contentInset + 32.dp, end = contentInset),
-                ) {
-                    ThreadRail(foreground)
-                    Column {
-                        replies.forEachIndexed { index, reply ->
-                            if (index > 0) Spacer(Modifier.height(16.dp))
-                            CommentBody(
-                                comment = reply,
-                                foreground = foreground,
-                                avatarSize = ReplyAvatar,
-                                // Les réponses sont déjà en retrait (rail + décalage du
-                                // groupe) : leur survol part de là et file jusqu'au bord.
-                                contentInset = 0.dp,
-                                isRoot = false,
-                                replyTo = replyTargetOf(reply, root),
-                                onReply = { onReply(reply, root) },
-                                onEdit = onEdit?.let { edit -> { edit(reply, root) } },
-                                onDelete = { onDelete(reply, root) },
-                                onOpenUser = onOpenUser,
-                                onToggleReaction = onToggleReaction?.let { toggle ->
-                                    { emoji -> toggle(reply, root, emoji) }
-                                },
-                                onVote = onVote?.let { vote ->
-                                    { value -> vote(reply, root, value) }
-                                },
+                        .padding(start = contentInset + 32.dp, end = contentInset)
+                        .drawBehind {
+                            // Trait arrondi, du haut au bas exact de la colonne mesurée.
+                            drawLine(
+                                color = railColor,
+                                start = Offset(railX, 0f),
+                                end = Offset(railX, size.height),
+                                strokeWidth = railStroke,
+                                cap = StrokeCap.Round,
                             )
                         }
+                        // Gouttière à gauche pour laisser la place au filet (≈ 20 dp,
+                        // comme l'ancien rail : 6 de marge + 2 de trait + 12 d'écart).
+                        .padding(start = 20.dp),
+                ) {
+                    replies.forEachIndexed { index, reply ->
+                        if (index > 0) Spacer(Modifier.height(16.dp))
+                        CommentBody(
+                            comment = reply,
+                            foreground = foreground,
+                            avatarSize = ReplyAvatar,
+                            // Les réponses sont déjà en retrait (rail + décalage du
+                            // groupe) : leur survol part de là et file jusqu'au bord.
+                            contentInset = 0.dp,
+                            isRoot = false,
+                            replyTo = replyTargetOf(reply, root),
+                            onReply = { onReply(reply, root) },
+                            onEdit = onEdit?.let { edit -> { edit(reply, root) } },
+                            onDelete = { onDelete(reply, root) },
+                            onOpenUser = onOpenUser,
+                            onToggleReaction = onToggleReaction?.let { toggle ->
+                                { emoji -> toggle(reply, root, emoji) }
+                            },
+                            onVote = onVote?.let { vote ->
+                                { value -> vote(reply, root, value) }
+                            },
+                        )
                     }
                 }
                 // « Masquer » aligné sous les réponses (même retrait que le rail).
@@ -383,18 +404,10 @@ private fun replyTargetOf(reply: ThreadComment, root: ThreadComment): String? {
         ?: mention.handle.takeIf { it.isNotBlank() }
 }
 
-/** Le filet vertical qui rattache TOUT le groupe de réponses à sa racine. */
-@Composable
-private fun ThreadRail(foreground: Color) {
-    Box(
-        modifier = Modifier
-            .padding(start = 5.dp, end = 13.dp)
-            .width(2.dp)
-            .fillMaxHeight()
-            .clip(RoundedCornerShape(50))
-            .background(foreground.copy(alpha = 0.16f)),
-    )
-}
+// Le filet vertical qui rattache le groupe de réponses à sa racine est désormais PEINT
+// (`drawBehind`) directement derrière la colonne des réponses (voir plus haut), et non
+// posé comme un composable qui « remplit la hauteur » — cette approche cassait la mesure
+// d'une réponse contenant un GIF.
 
 // ── Un message ────────────────────────────────────────────────────────────────
 

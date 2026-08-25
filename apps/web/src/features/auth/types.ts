@@ -11,4 +11,11 @@ export interface User {
     /** Préférences JSON opaques (accent, réglages du lecteur…) — interprétées par features/profile. */
     preferences: unknown;
     createdAt: string;
+    /**
+     * L'utilisateur fait-il partie de l'allow-list admin (back : `app.admin-emails`) ?
+     * Renseigné uniquement dans la réponse « own » (`/users/me`). Pilote l'affichage
+     * du lien Admin et l'accès à la page /admin. Optionnel par prudence (anciens
+     * caches / réponses publiques ne le portent pas) → traité comme `false`.
+     */
+    admin?: boolean;
 }

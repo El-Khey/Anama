@@ -1,31 +1,27 @@
 package com.novelrealm.controller;
 
-import com.novelrealm.dto.ChangePasswordRequest;
-import com.novelrealm.dto.UpdateProfileRequest;
-import com.novelrealm.dto.UserResponse;
-import com.novelrealm.dto.UserSearchResponse;
-import com.novelrealm.dto.UserStatsResponse;
-import com.novelrealm.exception.InvalidProfileFieldException;
-import com.novelrealm.model.User;
-import com.novelrealm.service.AuthenticationService;
-import com.novelrealm.service.FileStorageService;
-import com.novelrealm.service.UserMapper;
-import com.novelrealm.service.UserService;
-import com.novelrealm.service.UserStatsService;
-
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-
 import java.util.List;
-
 import org.springframework.security.core.Authentication;
-
 import tools.jackson.databind.JsonNode;
+
+import com.novelrealm.dto.user.ChangePasswordRequest;
+import com.novelrealm.dto.user.UpdateProfileRequest;
+import com.novelrealm.dto.user.UserResponse;
+import com.novelrealm.dto.user.UserSearchResponse;
+import com.novelrealm.dto.user.UserStatsResponse;
+import com.novelrealm.exception.user.InvalidProfileFieldException;
+import com.novelrealm.model.User;
+import com.novelrealm.service.auth.AuthenticationService;
+import com.novelrealm.service.common.FileStorageService;
+import com.novelrealm.service.user.UserMapper;
+import com.novelrealm.service.user.UserService;
+import com.novelrealm.service.user.UserStatsService;
 
 /**
  * API des utilisateurs. Les routes {@code /me/**} concernent toujours

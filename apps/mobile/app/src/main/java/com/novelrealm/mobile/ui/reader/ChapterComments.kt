@@ -479,7 +479,7 @@ fun AttachedGifPreview(previewUrl: String, onRemove: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             modifier = Modifier
-                .size(64.dp)
+                .size(56.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)),
         ) {

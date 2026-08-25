@@ -1,10 +1,12 @@
 package com.novelrealm.mobile.ui.explore
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +20,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import com.novelrealm.mobile.data.remote.dto.NovelDto
 import com.novelrealm.mobile.ui.components.COVER_RATIO_BOOK
 import com.novelrealm.mobile.ui.components.NovelCover
+import kotlinx.coroutines.delay
 
 // La vitrine éditoriale d'Explorer : le héros à la une et les rangées horizontales.
 // Tout est peint « à la main » (dégradés, badges) sur la couverture partagée
@@ -56,63 +62,142 @@ internal fun novelStatusLabel(status: String?): String? = when (status) {
     else -> null
 }
 
+/** Cadence du défilement automatique du carrousel à la une. */
+private const val AUTO_ADVANCE_MS = 5000L
+
 /**
- * Le héros de l'onglet : le roman mis en avant, en grand, tout en haut.
+ * Le **carrousel à la une** de l'onglet : plusieurs romans en vedette qui défilent en
+ * grand, tout en haut — le vrai réflexe « app mobile » (Webtoon, stores de streaming).
  *
- * <p>Une couverture large (format livre légèrement recadré par le cadre), noyée sous un
- * dégradé qui garantit la lisibilité du texte quelle que soit l'image, puis le titre,
- * l'auteur, une pastille de statut et deux actions : suivre (le cœur) et ouvrir la fiche.
+ * <p><b>Auto + swipe.</b> Il avance seul toutes les quelques secondes ET se laisse
+ * swiper. Dès qu'on pose le doigt (glissement), l'auto se met en pause ; il reprend
+ * quand on lâche. On lit l'état de glissement du pager ([collectIsDraggedAsState]) pour
+ * ne jamais lutter contre le doigt.
  *
- * <p><b>Parallax.</b> [scrollOffsetProvider] rend le décalage de défilement de la liste
- * (en pixels, ≥ 0). On translate la couverture à vitesse réduite : le fond « traîne »
- * derrière le contenu quand on descend, ce qui donne la profondeur cinématographique
- * demandée sans jamais bouger le texte, qui doit rester net et stable.
+ * <p><b>Animation.</b> Entre deux pages, le contenu (texte, cœur) se translate et
+ * s'estompe légèrement selon la fraction de défilement du pager — la page qui arrive
+ * « glisse » et s'allume, celle qui part s'efface. La couverture, elle, bouge un peu moins
+ * vite : un mini-parallax horizontal qui donne de la profondeur au swipe.
+ *
+ * <p>Le [HorizontalPager] est stable depuis Compose 1.4 (plus expérimental) — conforme à
+ * la règle du projet. Un seul roman ? Pas de dots, pas d'auto : un carrousel d'un élément
+ * est juste un héros fixe.
  */
 @Composable
-internal fun NovelHero(
-    novel: NovelDto,
-    inLibrary: Boolean,
-    onToggleLibrary: () -> Unit,
-    onClick: () -> Unit,
-    scrollOffsetProvider: () -> Float,
+internal fun NovelHeroCarousel(
+    novels: List<NovelDto>,
+    libraryNovelIds: Set<Long>,
+    onNovelClick: (Long) -> Unit,
+    onToggleLibrary: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(22.dp)
+    if (novels.isEmpty()) return
+    val shape = RoundedCornerShape(24.dp)
+    val pagerState = rememberPagerState(pageCount = { novels.size })
+
+    // Défilement automatique, en pause tant qu'on garde le doigt dessus. `dragged` suit
+    // l'interaction du pager ; l'effet se relance à chaque page atteinte et attend, puis
+    // avance d'une page (en boucle). Un seul roman → pas d'auto (rien à faire tourner).
+    val dragged by pagerState.interactionSource.collectIsDraggedAsState()
+    if (novels.size > 1) {
+        LaunchedEffect(pagerState, dragged) {
+            if (dragged) return@LaunchedEffect
+            while (true) {
+                delay(AUTO_ADVANCE_MS)
+                if (!pagerState.isScrollInProgress) {
+                    val next = (pagerState.currentPage + 1) % novels.size
+                    pagerState.animateScrollToPage(next)
+                }
+            }
+        }
+    }
+
+    Box(modifier = modifier.fillMaxWidth()) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape),
+        ) { page ->
+            // Décalage de CETTE page par rapport au centre : 0 quand centrée, ±1 aux
+            // voisines. Sert au fondu du contenu et au mini-parallax de la couverture.
+            val offset = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
+            val novel = novels[page]
+            HeroSlide(
+                novel = novel,
+                inLibrary = novel.id in libraryNovelIds,
+                pageOffset = offset,
+                onToggleLibrary = { onToggleLibrary(novel.id) },
+                onClick = { onNovelClick(novel.id) },
+                shape = shape,
+            )
+        }
+
+        // Les points de progression, posés en bas au centre du carrousel.
+        if (novels.size > 1) {
+            HeroDots(
+                count = novels.size,
+                current = pagerState.currentPage,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 14.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Une page du carrousel : couverture pleine, fondu sombre, texte incrusté et CTA. Le
+ * [pageOffset] (0 au centre) pilote l'animation : le contenu s'estompe et glisse quand la
+ * page s'éloigne, la couverture se décale un peu moins vite (parallax horizontal).
+ */
+@Composable
+private fun HeroSlide(
+    novel: NovelDto,
+    inLibrary: Boolean,
+    pageOffset: Float,
+    onToggleLibrary: () -> Unit,
+    onClick: () -> Unit,
+    shape: androidx.compose.ui.graphics.Shape,
+) {
     val status = novelStatusLabel(novel.status)
     val accent = MaterialTheme.colorScheme.primary
+    // Le contenu s'efface d'autant qu'on s'éloigne du centre (plein au centre, éteint à
+    // une page). `absOffset` borné à 1 pour ne pas devenir négatif sur les bords.
+    val absOffset = pageOffset.coerceIn(-1f, 1f)
+    val contentAlpha = (1f - kotlin.math.abs(absOffset)).coerceIn(0f, 1f)
 
     Box(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
             .clickable(onClick = onClick),
     ) {
-        // Couverture, décalée en parallax (à mi-vitesse du scroll). Un facteur négatif la
-        // fait remonter légèrement quand on descend : elle « résiste » au défilement.
+        // Couverture : léger parallax horizontal (elle glisse à ~60 % de la vitesse du
+        // swipe), pour la profondeur. Elle reste pleinement opaque, seule la scène défile.
         NovelCover(
             coverUrl = novel.coverImageUrl,
             contentDescription = novel.title,
-            ratio = 4f / 5f,
+            ratio = 3f / 4f,
             shape = shape,
             modifier = Modifier
                 .fillMaxWidth()
-                .graphicsLayer { translationY = -scrollOffsetProvider() * 0.18f },
+                .graphicsLayer { translationX = absOffset * size.width * 0.20f },
         )
 
-        // Dégradé bas → haut : le texte se pose sur du sombre, l'image respire en haut.
+        // Fondu du bas vers le noir : le texte incrusté reste lisible sur toute image.
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .background(
                     Brush.verticalGradient(
-                        0.35f to Color.Transparent,
-                        0.72f to Color(0xB3000000),
-                        1f to Color(0xF200000A),
+                        0.30f to Color.Transparent,
+                        0.68f to Color(0xB3000000),
+                        1f to Color(0xF2000005),
                     ),
                 ),
         )
 
-        // Le cœur, en haut à droite : suivre sans ouvrir la fiche, comme sur les cartes.
         HeartButton(
             inLibrary = inLibrary,
             onToggle = onToggleLibrary,
@@ -123,21 +208,35 @@ internal fun NovelHero(
                 .padding(12.dp),
         )
 
+        // Texte incrusté en bas, animé : il glisse horizontalement à l'inverse du swipe et
+        // s'estompe quand la page s'éloigne — la page entrante « s'allume ».
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 18.dp),
+                .padding(start = 20.dp, end = 20.dp, bottom = 34.dp, top = 20.dp)
+                .graphicsLayer {
+                    alpha = contentAlpha
+                    translationX = -absOffset * 60f
+                },
         ) {
-            // Petit surtitre pour poser le ton « à la une », en accent.
-            Text(
-                text = "À LA UNE",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 2.sp,
-                color = accent,
-            )
-            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(5.dp)
+                        .clip(CircleShape)
+                        .background(accent),
+                )
+                Spacer(Modifier.width(7.dp))
+                Text(
+                    text = "À LA UNE",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 2.sp,
+                    color = accent,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
             Text(
                 text = novel.title,
                 style = MaterialTheme.typography.headlineSmall,
@@ -146,13 +245,13 @@ internal fun NovelHero(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(7.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 novel.author?.takeIf { it.isNotBlank() }?.let { author ->
                     Text(
                         text = author,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.75f),
+                        color = Color.White.copy(alpha = 0.78f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
@@ -167,10 +266,44 @@ internal fun NovelHero(
                     StatusBadge(label = status)
                 }
             }
-            Spacer(Modifier.height(14.dp))
-            // Une seule action forte, pleine largeur : « Découvrir » ouvre la fiche. Le
-            // suivi passe par le cœur ci-dessus — deux boutons côte à côte alourdiraient.
+            Spacer(Modifier.height(16.dp))
             HeroCta(label = "Découvrir", onClick = onClick)
+        }
+    }
+}
+
+/**
+ * Les points de progression du carrousel. Le point actif s'étire en pilule accent ; les
+ * autres restent de petits points sourds. La largeur s'anime, pour que le passage d'un
+ * point à l'autre glisse au lieu de sauter.
+ */
+@Composable
+private fun HeroDots(count: Int, current: Int, modifier: Modifier = Modifier) {
+    val accent = MaterialTheme.colorScheme.primary
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier,
+    ) {
+        repeat(count) { index ->
+            val active = index == current
+            val width by animateDpAsState(
+                targetValue = if (active) 20.dp else 6.dp,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMedium,
+                ),
+                label = "dotWidth",
+            )
+            Box(
+                modifier = Modifier
+                    .height(6.dp)
+                    .width(width)
+                    .clip(CircleShape)
+                    .background(
+                        if (active) accent else Color.White.copy(alpha = 0.45f),
+                    ),
+            )
         }
     }
 }

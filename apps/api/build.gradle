@@ -31,8 +31,10 @@ dependencies {
 	// « Unknown property »). Voir META-INF/additional-spring-configuration-metadata.json.
 	annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
 
-	// Jsoup : fetch + parsing HTML pour l'ingestion (scraping) de romans.
-	implementation 'org.jsoup:jsoup:1.18.3'
+	// (Ingestion V2 : la source chikari expose une API JSON — plus de scraping
+	// HTML. Le client HTTP est RestClient de spring-web, déjà présent, et le
+	// parsing JSON passe par Jackson 3, déjà transitif. Aucune dépendance dédiée.
+	// L'ancienne dépendance Jsoup a été retirée avec le scraper mort.)
 
 	// devtools : en dev, redémarre l'app automatiquement quand les classes
 	// compilées changent (LiveReload). "developmentOnly" => exclu du jar de prod.

@@ -1,7 +1,6 @@
 package com.novelrealm.controller;
 
 import java.util.Map;
-
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -16,21 +15,20 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import com.novelrealm.dto.ChapterCommentResponse;
-import com.novelrealm.dto.CommentCountResponse;
-import com.novelrealm.dto.CommentReactionsResponse;
-import com.novelrealm.dto.CommentVotesResponse;
-import com.novelrealm.dto.CreateChapterCommentRequest;
-import com.novelrealm.dto.PageResponse;
-import com.novelrealm.dto.ReactToCommentRequest;
-import com.novelrealm.dto.UpdateChapterCommentRequest;
-import com.novelrealm.dto.VoteOnCommentRequest;
-import com.novelrealm.service.ChapterCommentService;
-import com.novelrealm.service.CommentReactionService;
-import com.novelrealm.service.CommentVoteService;
-
 import jakarta.validation.Valid;
+
+import com.novelrealm.dto.comment.ChapterCommentResponse;
+import com.novelrealm.dto.comment.CommentCountResponse;
+import com.novelrealm.dto.comment.CommentReactionsResponse;
+import com.novelrealm.dto.comment.CommentVotesResponse;
+import com.novelrealm.dto.comment.CreateChapterCommentRequest;
+import com.novelrealm.dto.comment.ReactToCommentRequest;
+import com.novelrealm.dto.comment.UpdateChapterCommentRequest;
+import com.novelrealm.dto.comment.VoteOnCommentRequest;
+import com.novelrealm.dto.common.PageResponse;
+import com.novelrealm.service.comment.ChapterCommentService;
+import com.novelrealm.service.comment.CommentReactionService;
+import com.novelrealm.service.comment.CommentVoteService;
 
 /**
  * API des messages de fin de chapitre (#41). L'auteur est toujours l'utilisateur

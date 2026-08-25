@@ -29,8 +29,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
@@ -72,7 +74,9 @@ fun NovelGridItem(
     selected: Boolean = false,
     onLongClick: (() -> Unit)? = null,
 ) {
-    val shape = RoundedCornerShape(14.dp)
+    // Coins resserrés (10 dp) : des angles plus francs donnent le rendu « app pro /
+    // éditorial » (Mihon, Apple Books) plutôt que le galbe adouci d'avant.
+    val shape = RoundedCornerShape(10.dp)
 
     // Retour visuel à l'appui : la carte se creuse légèrement. `clickable` fournirait
     // un ripple, mais l'appui long passe par `pointerInput` (qui ne l'affiche pas) —
@@ -115,15 +119,18 @@ fun NovelGridItem(
             shape = shape,
         )
 
-        // Dégradé sombre : garantit la lisibilité du titre sur n'importe quelle image.
+        // Dégradé sombre : garantit la lisibilité du titre sur n'importe quelle image. Il
+        // monte plus haut et fonce davantage en bas qu'avant — le tiers inférieur se lit
+        // comme un vrai bandeau de légende, sur lequel le titre se détache franchement au
+        // lieu de « flotter » sur l'image.
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .background(
                     Brush.verticalGradient(
-                        0.45f to Color.Transparent,
-                        0.75f to Color(0x99000000),
-                        1f to Color(0xE6000000),
+                        0.32f to Color.Transparent,
+                        0.68f to Color(0x8A000000),
+                        1f to Color(0xF2000000),
                     ),
                 ),
         )
@@ -134,7 +141,7 @@ fun NovelGridItem(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 10.dp),
+                .padding(horizontal = 10.dp, vertical = 11.dp),
         ) {
             if (statusLabel != null) {
                 Text(
@@ -154,8 +161,16 @@ fun NovelGridItem(
             Text(
                 text = title,
                 color = Color.White,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
+                // Ombre portée douce : le titre reste net même sur une couverture très
+                // claire, là où le blanc seul se noierait dans l'image.
+                style = MaterialTheme.typography.labelLarge.copy(
+                    shadow = Shadow(
+                        color = Color(0xCC000000),
+                        offset = Offset(0f, 1f),
+                        blurRadius = 6f,
+                    ),
+                ),
+                fontWeight = FontWeight.Bold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = MaterialTheme.typography.labelLarge.fontSize * 1.2f,
@@ -176,7 +191,9 @@ fun NovelGridItem(
         if (unreadCount > 0) {
             Surface(
                 color = MaterialTheme.colorScheme.primary,
-                shape = RoundedCornerShape(8.dp),
+                // Coin resserré, assorti à la carte (10 dp) : la pastille suit la même
+                // échelle de radius que le reste de la grille.
+                shape = RoundedCornerShape(6.dp),
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(6.dp),

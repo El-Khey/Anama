@@ -1,7 +1,6 @@
 package com.novelrealm.controller;
 
 import java.util.List;
-
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -13,15 +12,14 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import com.novelrealm.dto.CreateQuoteRequest;
-import com.novelrealm.dto.NovelQuoteCountResponse;
-import com.novelrealm.dto.PageResponse;
-import com.novelrealm.dto.QuoteAnchorResponse;
-import com.novelrealm.dto.QuoteResponse;
-import com.novelrealm.service.QuoteService;
-
 import jakarta.validation.Valid;
+
+import com.novelrealm.dto.common.PageResponse;
+import com.novelrealm.dto.passage.CreateQuoteRequest;
+import com.novelrealm.dto.passage.NovelQuoteCountResponse;
+import com.novelrealm.dto.passage.QuoteAnchorResponse;
+import com.novelrealm.dto.passage.QuoteResponse;
+import com.novelrealm.service.passage.QuoteService;
 
 /**
  * API des citations personnelles (#41, §3).

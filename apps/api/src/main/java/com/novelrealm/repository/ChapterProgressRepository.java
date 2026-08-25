@@ -3,11 +3,6 @@ package com.novelrealm.repository;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-
-import com.novelrealm.dto.NovelChapterCount;
-import com.novelrealm.model.ChapterProgress;
-import com.novelrealm.model.ChapterProgressId;
-
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -15,6 +10,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+
+import com.novelrealm.dto.chapter.NovelChapterCount;
+import com.novelrealm.model.ChapterProgress;
+import com.novelrealm.model.ChapterProgressId;
 
 /**
  * Accès à la progression de lecture.
@@ -49,7 +48,7 @@ public interface ChapterProgressRepository extends JpaRepository<ChapterProgress
     List<ChapterProgress> findByUser_IdAndChapter_Novel_Id(Long userId, Long novelId);
 
     /** Nombre de chapitres LUS par roman, pour un utilisateur (résumé de progression). */
-    @Query("select new com.novelrealm.dto.NovelChapterCount(cp.chapter.novel.id, count(cp)) "
+    @Query("select new com.novelrealm.dto.chapter.NovelChapterCount(cp.chapter.novel.id, count(cp)) "
             + "from ChapterProgress cp where cp.user.id = :userId and cp.read = true "
             + "group by cp.chapter.novel.id")
     List<NovelChapterCount> countReadPerNovel(@Param("userId") Long userId);

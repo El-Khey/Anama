@@ -1,17 +1,7 @@
 package com.novelrealm.controller;
 
 import java.util.List;
-
-import com.novelrealm.dto.AddLibraryEntryRequest;
-import com.novelrealm.dto.LibraryEntryResponse;
-import com.novelrealm.dto.NovelResponse;
-import com.novelrealm.dto.UpdateLibraryStatusRequest;
-import com.novelrealm.model.LibraryEntry;
-import com.novelrealm.model.Novel;
-import com.novelrealm.service.LibraryEntryService;
-
 import jakarta.validation.Valid;
-
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -23,6 +13,14 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import com.novelrealm.dto.library.AddLibraryEntryRequest;
+import com.novelrealm.dto.library.LibraryEntryResponse;
+import com.novelrealm.dto.library.UpdateLibraryStatusRequest;
+import com.novelrealm.dto.novel.NovelResponse;
+import com.novelrealm.model.LibraryEntry;
+import com.novelrealm.model.Novel;
+import com.novelrealm.service.library.LibraryEntryService;
 
 /**
  * API de la bibliothèque personnelle. Toujours implicitement « l'utilisateur

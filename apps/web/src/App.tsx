@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import AdminRoute from "@/components/AdminRoute";
 import LoginPage from "@/pages/LoginPage";
 import RegisterPage from "@/pages/RegisterPage";
 import HomePage from "@/pages/HomePage";
@@ -9,6 +10,7 @@ import HistoryPage from "@/pages/HistoryPage";
 import NovelDetailPage from "@/pages/NovelDetailPage";
 import ChapterReaderPage from "@/pages/ChapterReaderPage";
 import ProfilPage from "@/pages/ProfilPage";
+import AdminPage from "@/pages/AdminPage";
 
 function App() {
     return (
@@ -26,6 +28,11 @@ function App() {
                 <Route path="/novels/:id" element={<NovelDetailPage />} />
                 <Route path="/novels/:novelId/chapters/:chapterId" element={<ChapterReaderPage />} />
                 <Route path="/profil" element={<ProfilPage />} />
+            </Route>
+
+            {/* Routes d'administration — réservées aux admins (AdminRoute). */}
+            <Route element={<AdminRoute />}>
+                <Route path="/admin" element={<AdminPage />} />
             </Route>
 
             {/* Toute route inconnue ramène à l'accueil. */}

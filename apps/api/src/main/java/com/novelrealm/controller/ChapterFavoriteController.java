@@ -1,12 +1,6 @@
 package com.novelrealm.controller;
 
 import java.util.List;
-
-import com.novelrealm.dto.ChapterFavoriteResponse;
-import com.novelrealm.model.Chapter;
-import com.novelrealm.model.ChapterFavorite;
-import com.novelrealm.service.ChapterFavoriteService;
-
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -16,6 +10,11 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import com.novelrealm.dto.progress.ChapterFavoriteResponse;
+import com.novelrealm.model.Chapter;
+import com.novelrealm.model.ChapterFavorite;
+import com.novelrealm.service.progress.ChapterFavoriteService;
 
 /**
  * API des favoris de chapitre (marque-pages). Toujours implicitement

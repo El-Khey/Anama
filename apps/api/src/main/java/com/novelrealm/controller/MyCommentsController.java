@@ -7,9 +7,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.novelrealm.dto.MyCommentResponse;
-import com.novelrealm.dto.PageResponse;
-import com.novelrealm.service.MyCommentsService;
+import com.novelrealm.dto.comment.MyCommentResponse;
+import com.novelrealm.dto.common.PageResponse;
+import com.novelrealm.service.comment.MyCommentsService;
 
 /**
  * « Mes commentaires » (issue #45, §4) : le flux unifié de tout ce que

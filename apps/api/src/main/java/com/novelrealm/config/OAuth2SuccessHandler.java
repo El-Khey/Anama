@@ -1,19 +1,17 @@
 package com.novelrealm.config;
 
-import com.novelrealm.model.User;
-import com.novelrealm.service.AuthenticationService;
-import com.novelrealm.service.UserService;
-
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.stereotype.Component;
-
 import java.io.IOException;
+
+import com.novelrealm.model.User;
+import com.novelrealm.service.auth.AuthenticationService;
+import com.novelrealm.service.user.UserService;
 
 /**
  * Appelé par Spring Security UNE FOIS que le flux OAuth Google a réussi
