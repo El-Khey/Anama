@@ -54,13 +54,19 @@ data class ExploreUiState(
     // Chargées une fois à l'ouverture, indépendamment de la grille filtrée : le
     // héros et les deux rangées donnent à l'onglet une entrée « magazine » plutôt
     // qu'un mur de vignettes. Elles s'effacent dès qu'on cherche ou qu'on filtre.
-    /** Le roman mis en avant tout en haut (le plus suivi ; à défaut, le plus récent). */
-    val featured: NovelDto? = null,
+    /**
+     * Les romans du **carrousel à la une** (les plus suivis en tête), défilés en héros.
+     * `featured` = le premier d'entre eux, gardé à part pour les tests d'affichage.
+     */
+    val featuredList: List<NovelDto> = emptyList(),
     /** Rangée horizontale « Nouveautés » (tri par date). */
     val recentRow: List<NovelDto> = emptyList(),
     /** Rangée horizontale « Populaires » (tri par nombre de lecteurs). */
     val popularRow: List<NovelDto> = emptyList(),
 ) {
+    /** Le premier roman à la une — pratique pour trancher l'affichage de la vitrine. */
+    val featured: NovelDto? get() = featuredList.firstOrNull()
+
     /** Un filtre est actif dès qu'on s'écarte de la vue par défaut (recherche comprise). */
     val filtersActive: Boolean
         get() = query.isNotBlank() ||
@@ -110,9 +116,9 @@ class ExploreViewModel : ViewModel() {
      * la vitrine est la même quoi qu'on cherche ensuite (elle disparaît alors de l'écran,
      * mais on la garde en mémoire pour la re-montrer instantanément quand on efface tout).
      *
-     * <p>Le héros est le premier des « populaires » (ce qui « marche » mérite la vedette) ;
-     * si la popularité ne renvoie rien, on retombe sur le premier des récents. Tolérant à
-     * l'échec : une rangée vide se cache toute seule, elle ne bloque jamais le catalogue.
+     * <p>Le carrousel à la une prend les premiers « populaires » (ce qui « marche » mérite
+     * la vedette) ; si la popularité ne renvoie rien, on retombe sur les récents. Tolérant
+     * à l'échec : une rangée vide se cache toute seule, elle ne bloque jamais le catalogue.
      */
     private fun loadEditorial() {
         viewModelScope.launch {
@@ -120,14 +126,18 @@ class ExploreViewModel : ViewModel() {
                 as? ApiResult.Success)?.data?.content.orEmpty().distinctBy { it.id }
             val popular = (repository.getNovels(page = 0, sort = ExploreSort.POPULARITY.id)
                 as? ApiResult.Success)?.data?.content.orEmpty().distinctBy { it.id }
-            val hero = popular.firstOrNull() ?: recent.firstOrNull()
+            // Jusqu'à cinq romans à la une pour le carrousel : assez pour qu'il vive, pas
+            // trop pour qu'on en fasse le tour. On part des populaires, complétés par les
+            // récents si la liste est courte.
+            val featured = (popular + recent).distinctBy { it.id }.take(FEATURED_COUNT)
+            val featuredIds = featured.map { it.id }.toSet()
             _state.update { s ->
                 s.copy(
-                    featured = hero,
-                    // On sort le héros des rangées : le revoir juste dessous, en petit,
-                    // ferait doublon.
-                    recentRow = recent.filter { it.id != hero?.id },
-                    popularRow = popular.filter { it.id != hero?.id },
+                    featuredList = featured,
+                    // On sort les romans à la une des rangées : les revoir juste dessous,
+                    // en petit, ferait doublon.
+                    recentRow = recent.filter { it.id !in featuredIds },
+                    popularRow = popular.filter { it.id !in featuredIds },
                 )
             }
         }
@@ -300,5 +310,10 @@ class ExploreViewModel : ViewModel() {
                 }
             }
         }
+    }
+
+    private companion object {
+        /** Nombre de romans dans le carrousel à la une. */
+        const val FEATURED_COUNT = 5
     }
 }

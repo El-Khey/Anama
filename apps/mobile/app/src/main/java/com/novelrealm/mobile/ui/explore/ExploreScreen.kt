@@ -203,21 +203,6 @@ private fun ExploreContent(
 ) {
     val gridState = rememberLazyGridState()
 
-    // Décalage de défilement pour le parallax du héros : 0 tant qu'on est en haut, puis
-    // les pixels défilés dès qu'il s'agit d'une ligne suivante. Lu en `derivedStateOf`
-    // pour ne recomposer que ce qui en dépend (le héros), pas toute la grille.
-    val heroScroll by remember {
-        derivedStateOf {
-            if (gridState.firstVisibleItemIndex == 0) {
-                gridState.firstVisibleItemScrollOffset.toFloat()
-            } else {
-                // Passé la première ligne, le héros est sorti de l'écran : on plafonne le
-                // décalage pour éviter tout saut si l'on y revient.
-                2000f
-            }
-        }
-    }
-
     // Pagination : charge la page suivante quand on approche de la fin.
     val reachedEnd by remember {
         derivedStateOf {
@@ -252,16 +237,15 @@ private fun ExploreContent(
 
         // ── Vitrine éditoriale (navigation libre seulement) ─────────────────────
         if (state.showEditorial) {
-            state.featured?.let { hero ->
+            if (state.featuredList.isNotEmpty()) {
                 fullSpan("hero") {
-                    NovelHero(
-                        novel = hero,
-                        inLibrary = hero.id in state.libraryNovelIds,
-                        onToggleLibrary = { onToggleLibrary(hero.id) },
-                        onClick = { onNovelClick(hero.id) },
-                        scrollOffsetProvider = { heroScroll },
-                        // La grille inset déjà de 16 dp : le héros s'aligne donc aux cartes
-                        // sans padding horizontal propre.
+                    NovelHeroCarousel(
+                        novels = state.featuredList,
+                        libraryNovelIds = state.libraryNovelIds,
+                        onNovelClick = onNovelClick,
+                        onToggleLibrary = onToggleLibrary,
+                        // La grille inset déjà de 16 dp : le carrousel s'aligne donc aux
+                        // cartes sans padding horizontal propre.
                         modifier = Modifier.padding(vertical = 6.dp),
                     )
                 }
