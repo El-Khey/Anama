@@ -3,6 +3,7 @@ package com.novelrealm.mobile.di
 import android.content.Context
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.novelrealm.mobile.BuildConfig
+import com.novelrealm.mobile.data.local.GifFavoritesStore
 import com.novelrealm.mobile.data.local.PreferencesStore
 import com.novelrealm.mobile.data.local.SessionManager
 import com.novelrealm.mobile.data.local.TokenStorage
@@ -86,6 +87,9 @@ object ServiceLocator {
             pushToServer = { preferences -> userRepository.updatePreferences(preferences) },
         )
     }
+
+    /** Favoris de GIF, stockés localement sur l'appareil. */
+    val gifFavoritesStore: GifFavoritesStore by lazy { GifFavoritesStore(appContext) }
 
     // ── Réseau ──
     private val json: Json by lazy {
