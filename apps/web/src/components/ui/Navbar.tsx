@@ -12,6 +12,7 @@ import {
     Menu01Icon,
     Notification03Icon,
     Search01Icon,
+    Settings02Icon,
     UserIcon,
 } from "@hugeicons/core-free-icons";
 import type { IconSvgElement } from "@hugeicons/react";
@@ -171,6 +172,15 @@ export default function Navbar() {
                                 <MenuLink to="/profil" icon={UserIcon} onClick={() => setMenuOpen(false)}>
                                     Mon compte
                                 </MenuLink>
+                                {user?.admin && (
+                                    <MenuLink
+                                        to="/admin"
+                                        icon={Settings02Icon}
+                                        onClick={() => setMenuOpen(false)}
+                                    >
+                                        Admin
+                                    </MenuLink>
+                                )}
                                 <button
                                     type="button"
                                     onClick={handleLogout}
@@ -232,6 +242,23 @@ export default function Navbar() {
                                     {item.label}
                                 </NavLink>
                             ))}
+                            {user?.admin && (
+                                <NavLink
+                                    to="/admin"
+                                    onClick={() => setMobileOpen(false)}
+                                    className={({ isActive }) =>
+                                        cn(
+                                            "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors",
+                                            isActive
+                                                ? "bg-white/10 text-foreground"
+                                                : "text-muted-foreground hover:bg-white/5 hover:text-foreground",
+                                        )
+                                    }
+                                >
+                                    <Icon icon={Settings02Icon} size={19} />
+                                    Admin
+                                </NavLink>
+                            )}
                         </nav>
                         <div className="flex items-center justify-between border-t border-border pt-3">
                             <Link

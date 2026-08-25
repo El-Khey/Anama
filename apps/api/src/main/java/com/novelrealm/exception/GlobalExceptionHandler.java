@@ -11,6 +11,7 @@ import java.util.HashMap;
 
 import com.novelrealm.dto.common.ErrorResponse;
 import com.novelrealm.dto.common.ValidationErrorResponse;
+import com.novelrealm.exception.admin.AdminAccessDeniedException;
 import com.novelrealm.exception.auth.InvalidCredentialsException;
 import com.novelrealm.exception.chapter.ChapterNotFoundException;
 import com.novelrealm.exception.comment.ChapterCommentNotFoundException;
@@ -37,6 +38,7 @@ import com.novelrealm.exception.user.EmailAlreadyUsedException;
 import com.novelrealm.exception.user.InvalidProfileFieldException;
 import com.novelrealm.exception.user.PasswordChangeNotAllowedException;
 import com.novelrealm.exception.user.UserNotFoundException;
+import com.novelrealm.ingestion.SourceUnavailableException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -160,6 +162,24 @@ public class GlobalExceptionHandler {
                 HttpStatus.FORBIDDEN.value(), // 403
                 ex.getMessage());
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
+    }
+
+    /** Authentifié, mais pas dans l'allow-list admin (endpoints d'ingestion). */
+    @ExceptionHandler(AdminAccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAdminAccessDenied(AdminAccessDeniedException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.FORBIDDEN.value(), // 403
+                ex.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
+    }
+
+    /** La source d'ingestion est injoignable (endpoints d'ingestion). */
+    @ExceptionHandler(SourceUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleSourceUnavailable(SourceUnavailableException ex) {
+        ErrorResponse error = new ErrorResponse(
+                HttpStatus.SERVICE_UNAVAILABLE.value(), // 503
+                ex.getMessage());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(error);
     }
 
     /** Messages enchaînés trop vite (garde-fou anti-rafale). */

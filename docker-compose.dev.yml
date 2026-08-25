@@ -28,8 +28,8 @@ services:
       - gradle_cache:/root/.gradle # cache des dépendances Gradle (sinon re-téléchargé à chaque fois)
       # Cache PROJET Gradle propre au conteneur : évite que son bootRun et le
       # Gradle de l'IDE hôte se disputent le verrou de ./apps/api/.gradle
-      # ("Timeout waiting to lock ... another Gradle instance"). Même raison que
-      # le cache dédié de `make ingest`. (build/ reste partagé pour le hot-reload.)
+      # ("Timeout waiting to lock ... another Gradle instance").
+      # (build/ reste partagé pour le hot-reload.)
       - /app/.gradle
 
   web:

@@ -36,6 +36,18 @@ public class Chapter {
     @Column(nullable = false)
     private String content;
 
+    // Numéro RÉEL chez la source (float, ex. 1.5), préservé alors que
+    // chapterNumber reste INT. Nullable : les chapitres hérités n'en ont pas.
+    // Voir docs/INGESTION_V2.md.
+    @Column(name = "source_number")
+    private java.math.BigDecimal sourceNumber;
+
+    // Chapitre premium / verrouillé côté source. Un chapitre verrouillé n'est
+    // pas persisté tant que son corps est retenu ; ce drapeau existe pour le
+    // reader (cadenas) et pour les chapitres qui se déverrouilleront.
+    @Column(name = "locked", nullable = false)
+    private boolean locked = false;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -50,6 +62,13 @@ public class Chapter {
         this.chapterNumber = chapterNumber;
         this.title = title;
         this.content = content;
+    }
+
+    /** Variante ingestion V2 : conserve aussi le numéro source réel (float). */
+    public Chapter(Novel novel, Integer chapterNumber, java.math.BigDecimal sourceNumber,
+            String title, String content) {
+        this(novel, chapterNumber, title, content);
+        this.sourceNumber = sourceNumber;
     }
 
     @PrePersist
@@ -105,5 +124,21 @@ public class Chapter {
 
     public void setContent(String content) {
         this.content = content;
+    }
+
+    public java.math.BigDecimal getSourceNumber() {
+        return sourceNumber;
+    }
+
+    public void setSourceNumber(java.math.BigDecimal sourceNumber) {
+        this.sourceNumber = sourceNumber;
+    }
+
+    public boolean isLocked() {
+        return locked;
+    }
+
+    public void setLocked(boolean locked) {
+        this.locked = locked;
     }
 }

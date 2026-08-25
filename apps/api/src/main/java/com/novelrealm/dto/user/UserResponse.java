@@ -21,5 +21,13 @@ public record UserResponse(
         String bannerUrl,
         AuthProvider provider,
         JsonNode preferences,
-        Instant createdAt
+        Instant createdAt,
+        /**
+         * L'utilisateur fait-il partie de l'allow-list admin ({@code app.admin-emails}) ?
+         * Renseigné uniquement dans la réponse « own » (jamais dans la vue publique).
+         * Pilote l'affichage du lien Admin côté front. Nommé {@code admin} (sans
+         * préfixe {@code is}) pour suivre la convention des autres booléens du
+         * projet et éviter l'ambiguïté de sérialisation Jackson ({@code isX → "x"}).
+         */
+        boolean admin
 ) {}

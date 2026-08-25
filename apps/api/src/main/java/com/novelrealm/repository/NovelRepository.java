@@ -15,6 +15,18 @@ public interface NovelRepository extends JpaRepository<Novel, Long> {
     // Clé naturelle pour l'ingestion idempotente (un slug = un roman).
     Optional<Novel> findBySlug(String slug);
 
+    // ── Ingestion V2 (chikari) ────────────────────────────────────────────────
+    // Vraie clé d'idempotence de l'upsert : (source, source_id). Index unique
+    // partiel novels_source_id_uq côté base.
+    Optional<Novel> findBySourceAndSourceId(String source, Long sourceId);
+
+    // Tous les romans d'une source donnée — parcourus par la synchro de maintenance.
+    java.util.List<Novel> findAllBySource(String source);
+
+    // Un slug est-il déjà pris ? (détection de collision avant création — un slug
+    // source pourrait télescoper un titre hérité différent.)
+    boolean existsBySlug(String slug);
+
     /**
      * Roman + ses genres chargés en une requête ({@code @EntityGraph}), pour la
      * fiche détail. Évite une {@code LazyInitializationException} côté controller

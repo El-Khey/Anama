@@ -38,6 +38,22 @@
       "type": "java.lang.String",
       "description": "Attribut SameSite du cookie JWT (Lax en dev même-site, None en prod cross-site).",
       "defaultValue": "Lax"
+    },
+    {
+      "name": "app.admin-emails",
+      "type": "java.lang.String",
+      "description": "Emails autorisés à déclencher l'ingestion (séparés par des virgules). Vide = personne (fail-closed)."
+    },
+    {
+      "name": "novelrealm.ingestion.source.base-url",
+      "type": "java.lang.String",
+      "description": "URL de base de la source d'ingestion (API JSON chikari).",
+      "defaultValue": "https://chikari.moe"
+    },
+    {
+      "name": "novelrealm.ingestion.source.user-agent",
+      "type": "java.lang.String",
+      "description": "User-Agent envoyé à la source (un UA navigateur réel est requis : les UA de bot sont bloqués)."
     }
   ]
 }

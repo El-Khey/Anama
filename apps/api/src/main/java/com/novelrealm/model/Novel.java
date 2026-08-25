@@ -44,6 +44,38 @@ public class Novel {
     @Column(nullable = false)
     private NovelStatus status;
 
+    // Contenu adulte : pilote le filtrage lors de la découverte automatique
+    // (issue ingestion V2). Défaut false ; nullable=false en base.
+    @Column(name = "is_nsfw", nullable = false)
+    private boolean nsfw = false;
+
+    // ── Identité SOURCE + signaux de fraîcheur (ingestion V2 chikari) ──────────
+    // `source`/`sourceId` forment la clé d'idempotence de l'upsert (index unique
+    // partiel novels_source_id_uq). Les trois `source*Count/Number/ChapterAt`
+    // sont les signaux qui permettent de savoir « rien n'a changé » sans tirer
+    // aucun chapitre. Tous nullable : les romans hérités (ère lightnovelworld)
+    // n'ont pas d'identité source. Voir docs/INGESTION_V2.md.
+    @Column(name = "source")
+    private String source;
+
+    @Column(name = "source_id")
+    private Long sourceId;
+
+    @Column(name = "source_slug")
+    private String sourceSlug;
+
+    @Column(name = "source_chapter_count")
+    private Integer sourceChapterCount;
+
+    @Column(name = "source_latest_number")
+    private java.math.BigDecimal sourceLatestNumber;
+
+    @Column(name = "source_last_chapter_at")
+    private Instant sourceLastChapterAt;
+
+    @Column(name = "last_synced_at")
+    private Instant lastSyncedAt;
+
     // Relation M:N vers les genres (table de jointure novel_genre).
     @ManyToMany
     @JoinTable(
@@ -152,5 +184,71 @@ public class Novel {
 
     public void setGenres(Set<Genre> genres) {
         this.genres = genres;
+    }
+
+    // ── Contenu adulte ─────────────────────────────────────────────────────────
+    public boolean isNsfw() {
+        return nsfw;
+    }
+
+    public void setNsfw(boolean nsfw) {
+        this.nsfw = nsfw;
+    }
+
+    // ── Identité source + fraîcheur (ingestion V2) ─────────────────────────────
+    public String getSource() {
+        return source;
+    }
+
+    public void setSource(String source) {
+        this.source = source;
+    }
+
+    public Long getSourceId() {
+        return sourceId;
+    }
+
+    public void setSourceId(Long sourceId) {
+        this.sourceId = sourceId;
+    }
+
+    public String getSourceSlug() {
+        return sourceSlug;
+    }
+
+    public void setSourceSlug(String sourceSlug) {
+        this.sourceSlug = sourceSlug;
+    }
+
+    public Integer getSourceChapterCount() {
+        return sourceChapterCount;
+    }
+
+    public void setSourceChapterCount(Integer sourceChapterCount) {
+        this.sourceChapterCount = sourceChapterCount;
+    }
+
+    public java.math.BigDecimal getSourceLatestNumber() {
+        return sourceLatestNumber;
+    }
+
+    public void setSourceLatestNumber(java.math.BigDecimal sourceLatestNumber) {
+        this.sourceLatestNumber = sourceLatestNumber;
+    }
+
+    public Instant getSourceLastChapterAt() {
+        return sourceLastChapterAt;
+    }
+
+    public void setSourceLastChapterAt(Instant sourceLastChapterAt) {
+        this.sourceLastChapterAt = sourceLastChapterAt;
+    }
+
+    public Instant getLastSyncedAt() {
+        return lastSyncedAt;
+    }
+
+    public void setLastSyncedAt(Instant lastSyncedAt) {
+        this.lastSyncedAt = lastSyncedAt;
     }
 }

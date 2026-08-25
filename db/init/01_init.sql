@@ -41,9 +41,24 @@ CREATE TABLE IF NOT EXISTS novels (
     status          VARCHAR(20) NOT NULL
                     CHECK (status IN ('ONGOING', 'COMPLETED')),
     is_featured     BOOLEAN NOT NULL DEFAULT FALSE,    -- "à la une" sur l'Accueil
+    is_nsfw         BOOLEAN NOT NULL DEFAULT FALSE,    -- contenu adulte (filtrage de découverte)
+    -- Identité SOURCE + signaux de fraîcheur (ingestion V2 chikari, cf.
+    -- db/migrations/2026-08-25_chikari_ingestion.sql et docs/INGESTION_V2.md).
+    source                 VARCHAR(32),                -- ex. "chikari" ; NULL = roman hérité
+    source_id              BIGINT,                     -- id stable chez la source
+    source_slug            VARCHAR(255),               -- slug chez la source
+    source_chapter_count   INT,                        -- nb de chapitres annoncé (détection de delta)
+    source_latest_number   NUMERIC(10,2),              -- dernier n° annoncé
+    source_last_chapter_at TIMESTAMPTZ,                -- date du dernier chapitre annoncé
+    last_synced_at         TIMESTAMPTZ,                -- dernière synchro réussie
     created_at      TIMESTAMP NOT NULL,
     updated_at      TIMESTAMP NOT NULL
 );
+
+-- Un seul roman par (source, source_id) = clé d'idempotence de l'upsert.
+-- Index PARTIEL : les romans hérités (source NULL) en sont exemptés.
+CREATE UNIQUE INDEX IF NOT EXISTS novels_source_id_uq
+    ON novels (source, source_id) WHERE source IS NOT NULL;
 
 -- Chapitres rattachés directement au roman (structure plate, web novel).
 CREATE TABLE IF NOT EXISTS chapters (
@@ -52,6 +67,8 @@ CREATE TABLE IF NOT EXISTS chapters (
     chapter_number INT NOT NULL,                       -- ordre dans le roman
     title          VARCHAR(255) NOT NULL,
     content        TEXT NOT NULL,
+    source_number  NUMERIC(10,2),                      -- n° réel chez la source (float, ex. 1.5)
+    locked         BOOLEAN NOT NULL DEFAULT FALSE,     -- chapitre premium / verrouillé côté source
     created_at     TIMESTAMP NOT NULL,                 -- "derniers chapitres" (Accueil)
     updated_at     TIMESTAMP NOT NULL,
     -- Pas deux fois le même n° pour un roman. Contrainte NOMMÉE explicitement :

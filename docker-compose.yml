@@ -63,6 +63,9 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
       # ── Secret de signature JWT (≥ 32 octets, depuis .env) ───────────
       JWT_SECRET: ${JWT_SECRET}
+      # ── Emails administrateurs (depuis .env) — accès à la page /admin ─
+      # Séparés par des virgules ; vide = personne n'est admin (fail-closed).
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       # ── Clé KLIPY (GIF dans les commentaires) — FACULTATIVE ──────────
       # Vide = fonctionnalité désactivée proprement, l'app masque le bouton.
       KLIPY_API_KEY: ${KLIPY_API_KEY:-}

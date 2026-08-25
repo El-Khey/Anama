@@ -1,97 +1,97 @@
-# Ingestion de romans (scraping LightNovelWorld)
+# Ingestion de romans (miroir chikari.moe)
 
-> Comment remplir la base avec de vrais romans (métadonnées + genres + chapitres)
-> en les important depuis LightNovelWorld. Tout est en Spring Boot (Jsoup).
+> Comment la base se remplit et se maintient en light novels (métadonnées,
+> genres, chapitres texte) depuis **chikari.moe**, via son API JSON. Entièrement
+> en Spring Boot, à l'intérieur de l'application principale.
+>
+> Conception détaillée & décisions : [docs/INGESTION_V2.md](./INGESTION_V2.md).
 
 ## TL;DR
 
+L'ingestion tourne **toute seule** : un job planifié (par défaut à 03:00) rapatrie
+les nouveaux titres du catalogue chikari et met à jour les chapitres des romans
+déjà en base. Objectif à terme : un **miroir complet** du catalogue, atteint par
+vagues.
+
+Pour agir à la main (réservé aux emails admin) :
+
 ```bash
-make ingest SLUG=shadow-slave            # importe le roman + 50 premiers chapitres
-make ingest SLUG=shadow-slave MAX=200    # 200 chapitres
+# Importer / compléter un titre précis tout de suite
+curl -X POST https://<host>/api/admin/ingestion/novels/shadow-slave \
+     -H "Authorization: Bearer <JWT_ADMIN>"
+
+# Déclencher un cycle complet (découverte + maintenance) maintenant
+curl -X POST https://<host>/api/admin/ingestion/sync \
+     -H "Authorization: Bearer <JWT_ADMIN>"
 ```
 
-Le `SLUG` est la partie de l'URL : `https://lightnovelworld.org/novel/`**`shadow-slave`**`/`.
+Le `slug` est la partie d'URL : `https://chikari.moe/novels/`**`shadow-slave`**`/`.
+Les deux endpoints répondent **202 Accepted** immédiatement ; le travail se fait
+en arrière-plan (un gros titre = plusieurs milliers de chapitres). Le détail part
+dans les logs serveur.
 
 ## Ce que ça fait
 
-À partir d'un slug, l'ingestion récupère et enregistre :
-- le **roman** (titre, auteur, couverture, statut, résumé),
-- ses **genres** (créés s'ils n'existent pas, table `genres` + lien `novel_genre`),
-- ses **chapitres** (numéro, titre, contenu), dans la limite de `MAX`.
+- **Découverte** : parcourt le catalogue (`/api/novels?sort=added`) et importe les
+  titres absents de la base, jusqu'à `discovery-cap` par exécution (débit du
+  miroir).
+- **Maintenance** : pour chaque roman déjà stocké, un appel de détail ; si les
+  signaux de fraîcheur `(last_chapter_at, chapter_count, latest_number)` n'ont pas
+  bougé, on ne télécharge **aucun** chapitre. Sinon, on ne tire que les nouveaux.
+- **Idempotent** : un roman = `(source, source_id)` ; un chapitre =
+  `(novel_id, chapter_number)`. Relancer ne crée aucun doublon.
+- **Poli & robuste** : temporisation entre chapitres, retry borné sur 429/5xx, et
+  une panne de la source ne fait jamais tomber l'app (le prochain cycle réessaie).
+- Les chapitres **verrouillés** (premium) et à **numéro décimal** sont sautés
+  (loggés) ; les verrouillés sont retentés tant qu'ils ne se débloquent pas.
 
-À la fin, les données sont visibles via l'API existante :
-```bash
-curl localhost:8080/api/novels              # le roman importé apparaît
-curl localhost:8080/api/chapters/novel/<id> # ses chapitres (triés par numéro)
-curl localhost:8080/api/genres              # ses genres
-```
+## La source (chikari.moe)
 
-## Comment ça marche (architecture)
+API JSON publique, famille `/api/novels/*` (light novels **texte** ; la famille
+`/api/series/*`, qui est de l'image, n'est pas utilisée). Contrat détaillé dans
+[INGESTION_V2.md](./INGESTION_V2.md) :
 
-L'ingestion est un **job offline**, jamais dans le chemin d'une requête HTTP.
+| Rôle | Endpoint |
+|---|---|
+| Catalogue | `GET /api/novels?offset&limit` |
+| Détail | `GET /api/novels/<slug>` |
+| Liste chapitres | `GET /api/novels/<slug>/chapters?offset&limit` |
+| Texte d'un chapitre | `GET /api/novels/<slug>/chapters/<number>/read` |
 
-```
-make ingest SLUG=x
-   └─ docker compose run --rm (conteneur jetable, profil "ingest")
-        └─ IngestionRunner          (actif seulement sous le profil `ingest`)
-             └─ NovelIngestionService (orchestre : scrape → mappe → upsert)
-                  └─ LightNovelWorldScraper (Jsoup : fetch + parse HTML)
-        puis l'app S'ARRÊTE (one-shot) et le conteneur est supprimé (--rm)
-```
+## Configuration
 
-Points clés :
-- **Profil Spring `ingest`** : en fonctionnement normal (`make dev`, profil `dev`), le
-  `IngestionRunner` n'existe même pas → **aucun scraping accidentel**, et aucune
-  ré-ingestion à chaque redémarrage.
-- **One-shot** : le conteneur démarre, importe, puis s'éteint tout seul. Il écrit
-  dans la **même base** Postgres que l'app (qui, elle, continue de tourner).
-- **Idempotent** : un roman est identifié par son `slug` (colonne unique) ; les
-  chapitres déjà présents (même numéro) sont **ignorés**. Relancer la commande
-  ne crée pas de doublons et ne re-télécharge pas l'existant — pratique pour
-  récupérer la suite d'un roman en cours (`MAX` plus grand au prochain run).
+Bloc `novelrealm.ingestion` dans `application.yml` (tout surchargeable par
+variable d'environnement) :
 
-## Paramètres
+| Propriété | Env | Défaut | Rôle |
+|---|---|---|---|
+| `enabled` | `INGESTION_ENABLED` | `true` | coupe-circuit du job planifié |
+| `cron` | `INGESTION_CRON` | `0 0 3 * * *` | horaire du sync |
+| `delay-ms` | `INGESTION_DELAY_MS` | `500` | pause entre chapitres (politesse) |
+| `catalog-page-size` | `INGESTION_CATALOG_PAGE_SIZE` | `24` | pagination du catalogue |
+| `discovery-cap` | `INGESTION_DISCOVERY_CAP` | `100` | nouveaux titres / run (débit du miroir) |
+| `skip-nsfw` | `INGESTION_SKIP_NSFW` | `true` | la découverte saute l'adulte |
+| `max-retries` | `INGESTION_MAX_RETRIES` | `3` | tentatives sur erreur transitoire |
+| `source.base-url` | `INGESTION_SOURCE_BASE_URL` | `https://chikari.moe` | URL de la source |
 
-| Variable | Défaut | Rôle |
-|---|---|---|
-| `SLUG` | (obligatoire) | identifiant du roman (`.../novel/<slug>/`) |
-| `MAX` | `50` | nombre max de chapitres importés (politesse + vitesse) |
+Accès admin : `app.admin-emails` (`ADMIN_EMAILS`, emails séparés par des virgules,
+**vide = personne**).
 
-Réglage avancé (rarement utile) : `novelrealm.ingestion.delay-ms` (défaut `500`)
-= pause entre deux requêtes chapitre, pour ne pas marteler le site.
+## Exploitation
 
-## Où se trouve le code
+- **Aller plus vite / plus lentement** dans le rattrapage : monter/baisser
+  `INGESTION_DISCOVERY_CAP`. Attention au stockage (un miroir complet = plusieurs
+  Go de texte) et à la politesse envers la source.
+- **Suspendre l'ingestion** : `INGESTION_ENABLED=false` (le cron ne fait plus rien ;
+  les endpoints admin restent, eux, actionnables).
+- **Sécurité** : les endpoints admin exigent un JWT valide **et** un email listé
+  dans `ADMIN_EMAILS`. C'est un mécanisme d'intérim (pas de rôles en base) ; voir
+  [INGESTION_V2.md](./INGESTION_V2.md).
 
-```
-apps/api/src/main/java/com/novelrealm/ingestion/
-├── LightNovelWorldScraper   ← sélecteurs HTML (à adapter ici si le site change)
-├── NovelIngestionService    ← scrape → upsert idempotent
-├── IngestionRunner          ← déclencheur (profil `ingest`, one-shot)
-└── Scraped{Novel,ChapterRef,Chapter}  ← données brutes
-```
+## Notes de migration (depuis l'ancien système)
 
-Si un champ ressort vide, c'est un **sélecteur** à ajuster dans
-`LightNovelWorldScraper` (titre `h1.novel-title`, auteur `a.author-link`, cover
-`og:image`, statut `.status-badge`, résumé `.summary-content`, genres via le
-JSON-LD, contenu `#chapterText > p`).
-
-## Limites & précautions
-
-- **Droits / CGU** : le contenu de LightNovelWorld est sous copyright et son
-  scraping enfreint vraisemblablement ses conditions. À réserver à un usage
-  **local / apprentissage** — ne pas déployer publiquement un clone hébergeant
-  ce contenu. Pour une version publique, utiliser du domaine public (Project
-  Gutenberg, Standard Ebooks…).
-- **Politesse** : garder `MAX` raisonnable et le délai entre requêtes ; ne pas
-  lancer 3000 chapitres d'un coup sans raison. `MAX ≤ 0` **n'importe rien**
-  (garde volontaire contre un crawl complet accidentel) — mettre une valeur > 0.
-- **Genres en anglais** : LNW renvoie les genres en anglais (« Adventure »…),
-  alors que le seed `04_genres_seed.sql` est en français. L'attribution des
-  genres aux romans sera reprise proprement plus tard (modèle à définir).
-
-## Dépannage
-
-- *« no slug »* dans les logs → tu as oublié `SLUG=`.
-- Champ vide (titre/résumé/contenu) → sélecteur à ajuster dans le scraper.
-- Rien ne s'importe alors que la commande tourne → vérifier que Postgres est up
-  (`make ps`) ; `run` le démarre normalement tout seul.
+- L'ancien scraper HTML **LightNovelWorld** (Jsoup) et la cible `make ingest`
+  (conteneur one-shot, profil Spring `ingest`) ont été **retirés** : le site source
+  a fermé, et l'ingestion vit désormais dans l'app.
+- Schéma : voir `db/migrations/2026-08-25_chikari_ingestion.sql` (colonnes
+  `source_*` sur `novels`, `source_number`/`locked` sur `chapters`).

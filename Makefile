@@ -12,13 +12,10 @@ COMPOSE := docker compose -p novelrealm
 DEV     := -f docker-compose.yml -f docker-compose.dev.yml
 PROD    := -f docker-compose.yml
 
-# Nombre max de chapitres importés par `make ingest` (surchargeable : MAX=...).
-MAX     ?= 50
-
 # Cible par défaut quand on tape juste `make` : afficher l'aide.
 .DEFAULT_GOAL := help
 
-.PHONY: help dev prod down logs ps db restart-api rebuild clean ingest backup restore backups migrate check-schema
+.PHONY: help dev prod down logs ps db restart-api rebuild clean backup restore backups migrate check-schema
 
 # Où atterrissent les sauvegardes de la base (dossier non versionné).
 BACKUP_DIR ?= db/backups
@@ -36,7 +33,7 @@ help:  ## Affiche cette aide
 	@echo "  make restart-api  Redémarre l'API (applique un changement back en dev)"
 	@echo "  make rebuild      Reconstruit les images dev sans cache"
 	@echo "  make clean        Arrête tout ET supprime les volumes (DONNÉES DB PERDUES)"
-	@echo "  make ingest SLUG=<slug> [MAX=50]   Importe un roman LightNovelWorld (one-shot)"
+	@echo "  (Ingestion : automatique via le job planifié + endpoint admin. Voir docs/INGESTION.md)"
 	@echo ""
 	@echo "  make migrate      Applique db/migrations/ sur la base (sauvegarde d abord)"
 	@echo "  make backup       Sauvegarde la base"
@@ -226,32 +223,14 @@ restore:  ## Restaure une sauvegarde : make restore FILE=db/backups/<fichier>.du
 		--clean --if-exists --no-owner < $(FILE) && echo "Restauré depuis $(FILE)"
 
 # =====================================================================
-#  Importe un roman depuis LightNovelWorld, en tâche one-shot.
+#  Ingestion : plus de cible `make ingest`.
 #
-#  Tourne sur l'IMAGE DE PRODUCTION (le .jar déjà compilé), et non plus via
-#  Gradle. Trois raisons :
+#  L'ingestion V2 (miroir chikari.moe) tourne DANS l'application principale :
+#   • automatiquement, via un job planifié (@Scheduled) — voir la config
+#     `novelrealm.ingestion.*` dans application.yml ;
+#   • à la demande, via l'endpoint admin REST
+#     POST /api/admin/ingestion/novels/{slug}  (import d'un titre)
+#     POST /api/admin/ingestion/sync           (cycle complet).
 #
-#   • Ça marchait uniquement après `make dev`. Sur un serveur lancé avec
-#     `make prod`, l'image contient un .jar et le mode dev montait le code
-#     source PAR-DESSUS /app, ce qui masquait ce .jar :
-#     « Error: Unable to access jarfile app.jar ». Les deux modes partagent
-#     le même nom d'image, ils se marchaient dessus.
-#   • Plus de Gradle = plus de conflit de verrou avec l'API qui tourne, donc
-#     toute la mécanique de caches dédiés devient inutile.
-#   • Bien plus rapide : rien à compiler, on lance un jar.
-#
-#  `--build` garantit que l'image de prod existe et est à jour, quel que soit
-#  le mode lancé juste avant. Les couches sont en cache : c'est quasi instantané
-#  si rien n'a changé.
-#
-#  Le job s'arrête tout seul quand il a fini (IngestionRunner appelle System.exit),
-#  et `--rm` supprime le conteneur derrière lui.
+#  Détails et exploitation : docs/INGESTION.md.
 # =====================================================================
-ingest:  ## Importe un roman LightNovelWorld (ex: make ingest SLUG=shadow-slave [MAX=100])
-	@test -n "$(SLUG)" || { echo "Usage : make ingest SLUG=<slug> [MAX=50]   (slug = .../novel/<slug>/)"; exit 1; }
-	@echo "Ingestion one-shot de '$(SLUG)' (max $(MAX) chapitres)…"
-	$(COMPOSE) $(PROD) run --rm --build \
-		-e SPRING_PROFILES_ACTIVE=ingest \
-		-e NOVELREALM_INGESTION_SLUG=$(SLUG) \
-		-e NOVELREALM_INGESTION_MAX_CHAPTERS=$(MAX) \
-		api

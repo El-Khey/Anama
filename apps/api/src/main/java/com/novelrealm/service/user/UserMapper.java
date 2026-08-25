@@ -4,6 +4,7 @@ import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
+import com.novelrealm.admin.AdminGuard;
 import com.novelrealm.dto.user.UserResponse;
 import com.novelrealm.model.User;
 
@@ -16,9 +17,11 @@ import com.novelrealm.model.User;
 public class UserMapper {
 
     private final ObjectMapper objectMapper;
+    private final AdminGuard adminGuard;
 
-    public UserMapper(ObjectMapper objectMapper) {
+    public UserMapper(ObjectMapper objectMapper, AdminGuard adminGuard) {
         this.objectMapper = objectMapper;
+        this.adminGuard = adminGuard;
     }
 
     /** Réponse complète, préférences incluses — pour l'utilisateur lui-même. */
@@ -46,7 +49,9 @@ public class UserMapper {
                 user.getBannerUrl(),
                 user.getProvider(),
                 own ? parsePreferences(user.getPreferences()) : null,
-                user.getCreatedAt());
+                user.getCreatedAt(),
+                // isAdmin uniquement dans la vue « own » : jamais exposé sur un profil public.
+                own && adminGuard.isAdmin(user.getEmail()));
     }
 
     /** JSON stocké → arbre Jackson (null si absent ou illisible). */
