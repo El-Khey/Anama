@@ -108,6 +108,14 @@ novelrealm:
 
 server:
   port: 8080
+  # Derrière un proxy (le tunnel Cloudflare, ou nginx pour le web), la requête
+  # arrive à Spring en http://api:8080/… — l'adresse INTERNE, en clair. Sans ce
+  # réglage, toute adresse que l'app fabrique elle-même repart de là : la
+  # connexion Google échoue en « redirect_uri_mismatch », parce que Spring
+  # annonce à Google cette adresse interne au lieu de l'adresse publique.
+  # « framework » = faire confiance aux en-têtes X-Forwarded-* posés par le
+  # proxy et reconstruire l'adresse publique (https://novel-api.iap.software/…).
+  forward-headers-strategy: framework
 
 logging:
   level:
