@@ -9,9 +9,17 @@ plugins {
 // ─────────────────────────────────────────────────────────────────────────────
 //  Adresse de l'API, réglable SANS modifier ce fichier (donc sans rien commiter).
 //
-//  Priorité : local.properties  >  -Pnovelrealm.baseUrl=…  >  valeur par défaut.
+//  Priorité : -Pnovelrealm.baseUrl=…  >  local.properties  >  valeur par défaut.
 //  `local.properties` n'est jamais versionné : chacun y met l'adresse qui
 //  correspond à sa façon de tester.
+//
+//  Le drapeau AVANT le fichier, et pas l'inverse : `local.properties` décrit une
+//  habitude de poste (« ici je développe sur l'émulateur »), le drapeau décrit
+//  UNE invocation précise (« ce build-ci part sur un téléphone »). Dans l'autre
+//  sens, un `novelrealm.baseUrl` oublié dans le fichier gagnait sur tout, y
+//  compris sur un `assembleRelease` explicite : l'APK partait avec une adresse
+//  de réseau local et ne se connectait à rien hors de la maison — le tout sans
+//  le moindre avertissement, puisque l'adresse était valide.
 //
 //  Le DÉFAUT est la PRODUCTION : https://novel-api.iap.software/, l'API exposée
 //  par le tunnel Cloudflare (service `cloudflared` du docker-compose, démarré
@@ -34,8 +42,8 @@ val localProperties = Properties().apply {
 }
 
 val apiBaseUrl: String = run {
-    val raw = localProperties.getProperty("novelrealm.baseUrl")
-        ?: (project.findProperty("novelrealm.baseUrl") as String?)
+    val raw = (project.findProperty("novelrealm.baseUrl") as String?)
+        ?: localProperties.getProperty("novelrealm.baseUrl")
         ?: "https://novel-api.iap.software/"
 
     val trimmed = raw.trim()
