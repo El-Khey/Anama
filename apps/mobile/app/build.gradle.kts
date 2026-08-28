@@ -13,9 +13,20 @@ plugins {
 //  `local.properties` n'est jamais versionné : chacun y met l'adresse qui
 //  correspond à sa façon de tester.
 //
-//  • Émulateur (défaut)      → http://10.0.2.2:8080/   (10.0.2.2 = « localhost » du PC)
-//  • Téléphone en USB        → http://localhost:8080/  + `adb reverse tcp:8080 tcp:8080`
-//  • Téléphone en Wi-Fi      → http://<IP-LAN-du-PC>:8080/  (pare-feu à ouvrir)
+//  Le DÉFAUT est la PRODUCTION : https://novel-api.iap.software/, l'API exposée
+//  par le tunnel Cloudflare (service `cloudflared` du docker-compose, démarré
+//  par `make tunnel`). C'est volontaire : un APK part sur un téléphone qui n'est
+//  ni sur le Wi-Fi de la maison ni relié en USB — une adresse locale par défaut
+//  produirait une app qui ne se connecte à rien dès qu'elle quitte le bureau.
+//  Le développement, lui, sait qu'il doit se déclarer :
+//
+//  • Émulateur              → http://10.0.2.2:8080/   (10.0.2.2 = « localhost » du PC)
+//  • Téléphone en USB       → http://localhost:8080/  + `adb reverse tcp:8080 tcp:8080`
+//  • Téléphone en Wi-Fi     → http://<IP-LAN-du-PC>:8080/  (pare-feu à ouvrir)
+//
+//  ⚠ Ces trois-là sont en http:// : ils ne marchent que grâce au
+//  `usesCleartextTraffic="true"` du AndroidManifest. La production, elle, est en
+//  https:// — c'est Cloudflare qui fournit le certificat, rien à faire côté app.
 // ─────────────────────────────────────────────────────────────────────────────
 // Vide si le fichier n'existe pas — chaque lecture rend alors simplement `null`.
 val localProperties = Properties().apply {
@@ -25,7 +36,7 @@ val localProperties = Properties().apply {
 val apiBaseUrl: String = run {
     val raw = localProperties.getProperty("novelrealm.baseUrl")
         ?: (project.findProperty("novelrealm.baseUrl") as String?)
-        ?: "http://10.0.2.2:8080/"
+        ?: "https://novel-api.iap.software/"
 
     val trimmed = raw.trim()
 
@@ -65,8 +76,8 @@ android {
         // d'installer par-dessus un versionCode égal ou supérieur — et sans mise à jour
         // possible, la seule issue devient la désinstallation, qui, elle, efface les
         // données locales. versionName ne sert qu'à l'affichage.
-        versionCode = 3
-        versionName = "1.1"       // Correctif #2 : mentions, notifications, GIF, session persistante
+        versionCode = 4
+        versionName = "1.2"       // API jointe par le tunnel Cloudflare (accès hors du Wi-Fi maison)
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
