@@ -92,6 +92,41 @@ services:
       # Mettre API_PUBLISH=127.0.0.1:8080 dans .env sur le serveur.
       - "${API_PUBLISH:-8080}:8080"
 
+  # ── Tunnel Cloudflare (accès à l'API depuis l'extérieur) ───────
+  #
+  # Ne démarre QUE si on le demande : `make tunnel`. Le profil "tunnel" rend ce
+  # service invisible pour `make prod`, qui continue donc à lancer une stack
+  # strictement locale, exactement comme avant.
+  #
+  # Le principe est à l'envers de ce qu'on imagine : ce conteneur ouvre une
+  # connexion SORTANTE vers Cloudflare et la garde ouverte ; le trafic public
+  # redescend dedans. Rien à ouvrir sur la box, aucune redirection de port,
+  # aucune IP publique fixe à connaître — et le certificat HTTPS vient de
+  # Cloudflare. L'app mobile tape https://novel-api.iap.software/api/… depuis
+  # n'importe où, exactement comme sur le Wi-Fi de la maison.
+  #
+  # Vers QUOI le tunnel envoie le trafic (http://api:8080, joint par son nom de
+  # service sur le réseau interne Docker) se règle dans le tableau de bord
+  # Cloudflare — Zero Trust > Networks > Tunnels > Public hostname — et pas ici.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: novelrealm-tunnel
+    depends_on:
+      - api
+    profiles: ["tunnel"]
+    # Le tunnel doit survivre aux coupures réseau et aux redémarrages de la
+    # machine : sans ça, l'app mobile perd l'accès jusqu'au prochain `make`.
+    restart: unless-stopped
+    # Le jeton porte l'identité du tunnel ET ses clés : il vaut un mot de passe,
+    # d'où sa place dans .env (jamais versionné) et pas dans ce fichier.
+    # --no-autoupdate : l'image est figée comme les autres ; on met à jour en
+    # tirant une nouvelle image, pas par une auto-mise-à-jour silencieuse.
+    # Valeur par défaut vide, et NON la forme « :? » qui exigerait la variable :
+    # Compose remplace les ${…} AVANT de filtrer les profils, donc un jeton
+    # obligatoire ici ferait échouer `make prod`, qui ne lance pourtant pas le
+    # tunnel. C'est la cible `make tunnel` qui vérifie sa présence.
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:-}
+
   # ── Front (servi par nginx en prod) ────────────────────────────
   web:
     build:

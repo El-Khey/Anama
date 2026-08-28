@@ -15,7 +15,7 @@ PROD    := -f docker-compose.yml
 # Cible par défaut quand on tape juste `make` : afficher l'aide.
 .DEFAULT_GOAL := help
 
-.PHONY: help dev prod down logs ps db restart-api rebuild clean backup restore backups migrate check-schema
+.PHONY: help dev prod tunnel tunnel-logs tunnel-quick down logs ps db restart-api rebuild clean backup restore backups migrate check-schema
 
 # Où atterrissent les sauvegardes de la base (dossier non versionné).
 BACKUP_DIR ?= db/backups
@@ -26,6 +26,8 @@ help:  ## Affiche cette aide
 	@echo "  ------------------------"
 	@echo "  make dev          Mode DEV (hot-reload, code monté en volume) — en arrière-plan"
 	@echo "  make prod         Mode PROD (images figées) — en arrière-plan"
+	@echo "  make tunnel       Mode PROD + tunnel Cloudflare (API joignable de l exterieur)"
+	@echo "  make tunnel-logs  Suit les logs du tunnel (etat de la connexion)"
 	@echo "  make down         Arrête et supprime les conteneurs"
 	@echo "  make logs         Affiche les logs en continu"
 	@echo "  make ps           Liste l'état des conteneurs"
@@ -42,6 +44,7 @@ help:  ## Affiche cette aide
 	@echo "  make restore FILE=<fichier>   Restaure une sauvegarde (écrase la base)"
 	@echo ""
 	@echo "  App : http://localhost:5173   API : http://localhost:8080"
+	@echo "  Avec le tunnel : https://novel-api.iap.software"
 	@echo ""
 
 dev:  ## Lance la stack en mode développement (hot-reload), en arrière-plan
@@ -64,6 +67,37 @@ prod:  ## Lance la stack en mode production (détaché)
 		echo "  ⚠  $$UP service(s) sur 3 seulement. Pour voir pourquoi :"; \
 		echo "     docker compose -p novelrealm logs --tail=40 <service>"; \
 	fi
+
+tunnel:  ## Mode PROD + tunnel Cloudflare : l'API devient joignable de l'extérieur
+	# Le tunnel est dans le profil "tunnel" du docker-compose : sans ce drapeau,
+	# Compose ignore purement et simplement le service (c'est ce qui permet à
+	# `make prod` de rester une stack strictement locale).
+	# Sans jeton, cloudflared démarrerait, refuserait un « --token » sans valeur
+	# et boucherait les logs de redémarrages : autant s'arrêter ici, en disant quoi faire.
+	@grep -qs '^CLOUDFLARE_TUNNEL_TOKEN=.' .env || { \
+		echo "CLOUDFLARE_TUNNEL_TOKEN absent de .env — jeton à créer dans Cloudflare"; \
+		echo "(Zero Trust > Networks > Tunnels). Détails dans .env.example."; \
+		exit 1; }
+	$(COMPOSE) $(PROD) --profile tunnel up --build -d
+	@echo ""
+	@echo "Etat des services :"
+	@$(COMPOSE) $(PROD) --profile tunnel ps --format "  {{.Service}}\t{{.Status}}"
+	@echo ""
+	# « Registered tunnel connection » dans les logs = la connexion sortante est
+	# établie. C'est le seul signe fiable : le conteneur peut très bien tourner
+	# avec un jeton invalide et ne rien servir du tout.
+	@echo "  Connexion etablie ? -> make tunnel-logs  (chercher « Registered tunnel connection »)"
+	@echo "  API publique : https://novel-api.iap.software/api/..."
+	@echo ""
+
+tunnel-logs:  ## Suit les logs du tunnel Cloudflare (état de la connexion)
+	$(COMPOSE) $(PROD) --profile tunnel logs -f cloudflared
+
+tunnel-quick:  ## URL publique JETABLE (test sans domaine) — Ctrl+C pour couper
+	# Tunnel anonyme : Cloudflare tire une adresse au hasard en *.trycloudflare.com,
+	# affichée dans les lignes ci-dessous. Elle vit le temps de la commande et
+	# change à chaque lancement — pour vérifier un accès, pas pour s'en servir.
+	$(COMPOSE) $(PROD) run --rm cloudflared tunnel --no-autoupdate --url http://api:8080
 
 down:  ## Arrête et supprime les conteneurs
 	$(COMPOSE) $(DEV) down
